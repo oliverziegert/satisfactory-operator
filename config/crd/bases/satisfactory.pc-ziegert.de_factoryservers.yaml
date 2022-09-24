@@ -250,8 +250,6 @@ spec:
                 items:
                   type: string
                 type: array
-            required:
-            - nodes
             type: object
         type: object
     served: true

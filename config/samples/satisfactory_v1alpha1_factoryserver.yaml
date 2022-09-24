@@ -2,6 +2,7 @@ apiVersion: satisfactory.pc-ziegert.de/v1alpha1
 kind: FactoryServer
 metadata:
   name: factoryserver-sample
+  namespace: satisfactory
 spec:
   autosave: {}
   ports: {}

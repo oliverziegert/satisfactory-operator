@@ -233,7 +233,8 @@ type FactoryServerStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 
 	// Nodes are the names of the factoryServer pods
-	Nodes []string `json:"nodes"`
+	//+operator--sdk:csv:customresourcedefinitions:type=status
+	Nodes []string `json:"nodes,omitempty"`
 }
 
 //+kubebuilder:object:root=true

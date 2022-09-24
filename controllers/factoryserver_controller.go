@@ -578,8 +578,12 @@ func (r *FactoryServerReconciler) serviceForFactoryServer(f *satisfactoryv1alpha
 
 	switch f.Spec.Service.Type {
 	case corev1.ServiceTypeLoadBalancer:
-		svc.Spec.LoadBalancerClass = &f.Spec.Service.LoadBalancerClass
-		svc.Spec.LoadBalancerSourceRanges = f.Spec.Service.LoadBalancerSourceRanges
+		if f.Spec.Service.LoadBalancerClass != "" {
+			svc.Spec.LoadBalancerClass = &f.Spec.Service.LoadBalancerClass
+		}
+		if len(f.Spec.Service.LoadBalancerSourceRanges) > 0 {
+			svc.Spec.LoadBalancerSourceRanges = f.Spec.Service.LoadBalancerSourceRanges
+		}
 	case corev1.ServiceTypeNodePort:
 		for _, port := range svc.Spec.Ports {
 			switch port.Name {
@@ -620,7 +624,7 @@ func labelsForFactoryServer(f *satisfactoryv1alpha1.FactoryServer) map[string]st
 func imageForFactoryServer(f *satisfactoryv1alpha1.FactoryServer) string {
 	var imageEnvVar = "FACTORYSERVER_IMAGE"
 	image, found := os.LookupEnv(imageEnvVar)
-	if !found {
+	if found {
 		return image
 	}
 	return f.Spec.Image
@@ -640,7 +644,6 @@ func (r *FactoryServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&satisfactoryv1alpha1.FactoryServer{}).
 		Owns(&appsv1.StatefulSet{}).
-		// Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.Service{}).
 		Complete(r)
 }
