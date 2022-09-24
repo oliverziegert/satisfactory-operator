@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -25,10 +26,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/tools/record"
 	"os"
 	"reflect"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"strconv"
 	"strings"
 	"time"
@@ -43,7 +46,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-const factoryServerFinalizer = "satisfactory.pc-ziegert.de/finalizer"
+const (
+	factoryServerFinalizer       = "satisfactory.pc-ziegert.de/finalizer"
+	factoryServerLastAppliedHash = "satisfactory.pc-ziegert.de/last-applied-hash"
+)
 
 // Definitions to manage status conditions
 const (
@@ -85,13 +91,14 @@ type FactoryServerReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.12.2/pkg/reconcile
 func (r *FactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
+	result := &ctrl.Result{}
+	err := error(nil)
 
 	// Fetch the FactoryServer instance
 	// The purpose is check if the Custom Resource for the Kind FactoryServer
 	// is applied on the cluster if not we return nil to stop the reconciliation
 	factoryServer := &satisfactoryv1alpha1.FactoryServer{}
-	err := r.Get(ctx, req.NamespacedName, factoryServer)
-	if err != nil {
+	if err := r.Get(ctx, req.NamespacedName, factoryServer); err != nil {
 		if errors.IsNotFound(err) {
 			// If the custom resource is not stsFound then, it usually means that it was deleted or not created
 			// In this way, we will stop the reconciliation
@@ -105,14 +112,14 @@ func (r *FactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	// Let's just set the status as Unknown when no status are available
 	if factoryServer.Status.Conditions == nil || len(factoryServer.Status.Conditions) == 0 {
-		meta.SetStatusCondition(&factoryServer.Status.Conditions, metav1.Condition{
-			Type:    typeAvailableFactoryServer,
-			Status:  metav1.ConditionUnknown,
-			Reason:  "Reconciling",
-			Message: "Starting reconciliation",
-		})
-		if err = r.Status().Update(ctx, factoryServer); err != nil {
-			log.Error(err, "Failed to update FactoryServer status")
+		if err := r.setStatusCondition(
+			ctx,
+			factoryServer,
+			typeAvailableFactoryServer,
+			metav1.ConditionUnknown,
+			"Reconciling",
+			"Starting reconciliation",
+		); err != nil {
 			return ctrl.Result{}, err
 		}
 
@@ -137,7 +144,7 @@ func (r *FactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{Requeue: true}, err
 		}
 
-		if err = r.Update(ctx, factoryServer); err != nil {
+		if err := r.Update(ctx, factoryServer); err != nil {
 			log.Error(err, "Failed to update custom resource to add finalizer")
 			return ctrl.Result{}, err
 		}
@@ -151,18 +158,16 @@ func (r *FactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			log.Info("Performing Finalizer Operations for FactoryServer before delete CR")
 
 			// Let's add here a status "Downgrade" to define that this resource begin its process to be terminated.
-			meta.SetStatusCondition(&factoryServer.Status.Conditions, metav1.Condition{
-				Type:    typeDegradedFactoryServer,
-				Status:  metav1.ConditionUnknown,
-				Reason:  "Finalizing",
-				Message: fmt.Sprintf("Performing finalizer operations for the custom resource: %s ", factoryServer.Name),
-			})
-
-			if err := r.Status().Update(ctx, factoryServer); err != nil {
-				log.Error(err, "Failed to update FactoryServer status")
+			if err := r.setStatusCondition(
+				ctx,
+				factoryServer,
+				typeDegradedFactoryServer,
+				metav1.ConditionUnknown,
+				"Finalizing",
+				fmt.Sprintf("Performing finalizer operations for the custom resource: %s ", factoryServer.Name),
+			); err != nil {
 				return ctrl.Result{}, err
 			}
-
 			// Perform all operations required before remove the finalizer and allow
 			// the Kubernetes API to remove the custom custom resource.
 			r.doFinalizerOperationsForFactoryServer(factoryServer)
@@ -180,14 +185,14 @@ func (r *FactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				return ctrl.Result{}, err
 			}
 
-			meta.SetStatusCondition(&factoryServer.Status.Conditions, metav1.Condition{
-				Type:   typeDegradedFactoryServer,
-				Status: metav1.ConditionTrue, Reason: "Finalizing",
-				Message: fmt.Sprintf("Finalizer operations for custom resource %s name were successfully accomplished", factoryServer.Name),
-			})
-
-			if err := r.Status().Update(ctx, factoryServer); err != nil {
-				log.Error(err, "Failed to update FactoryServer status")
+			if err := r.setStatusCondition(
+				ctx,
+				factoryServer,
+				typeDegradedFactoryServer,
+				metav1.ConditionTrue,
+				"Finalizing",
+				fmt.Sprintf("Finalizer operations for custom resource %s name were successfully accomplished", factoryServer.Name),
+			); err != nil {
 				return ctrl.Result{}, err
 			}
 
@@ -205,136 +210,16 @@ func (r *FactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
-	// Check if the StatefulSet already exists, if not create a new one
-	stsFound := &appsv1.StatefulSet{}
-	err = r.Get(ctx, types.NamespacedName{Name: factoryServer.Name, Namespace: factoryServer.Namespace}, stsFound)
-	if err != nil && errors.IsNotFound(err) {
-		// Define a new StatefulSet
-		sts, err := r.statefulsetForFactoryServer(factoryServer)
-		if err != nil {
-			log.Error(err, "Failed to define new StatefulSet resource for FactoryServer")
-
-			// The following implementation will update the status
-			meta.SetStatusCondition(&factoryServer.Status.Conditions, metav1.Condition{
-				Type:   typeAvailableFactoryServer,
-				Status: metav1.ConditionFalse, Reason: "Reconciling",
-				Message: fmt.Sprintf("Failed to create StatefulSet for the custom resource (%s): (%s)", factoryServer.Name, err),
-			})
-
-			if err := r.Status().Update(ctx, factoryServer); err != nil {
-				log.Error(err, "Failed to update FactoryServer status")
-				return ctrl.Result{}, err
-			}
-
-			return ctrl.Result{}, err
-		}
-
-		log.Info("Creating a new StatefulSet", "StatefulSet.Namespace", sts.Namespace, "StatefulSet.Name", sts.Name)
-		if err = r.Create(ctx, sts); err != nil {
-			log.Error(err, "Failed to create new StatefulSet", "StatefulSet.Namespace", sts.Namespace, "StatefulSet.Name", sts.Name)
-			return ctrl.Result{}, err
-		}
-		// StatefulSet created successfully
-		// We will requeue the reconciliation so that we can ensure the state
-		// and move forward for the next operations
-		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 30}, nil
-	} else if err != nil {
-		log.Error(err, "Failed to get StatefulSet")
-		// Let's return the error for the reconciliation be re-trigged again
-		return ctrl.Result{}, err
+	if result, err = r.ensureConfigMap(ctx, req, factoryServer, r.configMapForFactoryServer(factoryServer)); result != nil {
+		return *result, err
 	}
 
-	// Check if the service already exists, if not create a new one
-	svcFound := &corev1.Service{}
-	err = r.Get(ctx, types.NamespacedName{Name: factoryServer.Name, Namespace: factoryServer.Namespace}, svcFound)
-	if err != nil && errors.IsNotFound(err) {
-		// Define a new Service
-		svc, err := r.serviceForFactoryServer(factoryServer)
-		if err != nil {
-			log.Error(err, "Failed to define new Service resource for FactoryServer")
-
-			// The following implementation will update the status
-			meta.SetStatusCondition(&factoryServer.Status.Conditions, metav1.Condition{
-				Type:   typeAvailableFactoryServer,
-				Status: metav1.ConditionFalse, Reason: "Reconciling",
-				Message: fmt.Sprintf("Failed to create Service for the custom resource (%s): (%s)", factoryServer.Name, err),
-			})
-
-			if err := r.Status().Update(ctx, factoryServer); err != nil {
-				log.Error(err, "Failed to update FactoryServer status")
-				return ctrl.Result{}, err
-			}
-
-			return ctrl.Result{}, err
-		}
-
-		log.Info("Creating a new Service", "Service.Namespace", svc.Namespace, "Service.Name", svc.Name)
-		err = r.Create(ctx, svc)
-		if err != nil {
-			log.Error(err, "Failed to create new Service", "Service.Namespace", svc.Namespace, "Service.Name", svc.Name)
-			return ctrl.Result{}, err
-		}
-		// We will requeue the reconciliation so that we can ensure the state
-		// and move forward for the next operations
-		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
-	} else if err != nil {
-		log.Error(err, "Failed to get Service")
-		return ctrl.Result{}, err
+	if result, err = r.ensureStatefulSet(ctx, req, factoryServer, r.statefulsetForFactoryServer(factoryServer)); result != nil {
+		return *result, err
 	}
 
-	// The CRD API is defining that the FactoryServer type, have a FactoryServerSpec.Size field
-	// to set the quantity of StatefulSet instances is the desired state on the cluster.
-	// Therefore, the following code will ensure the StatefulSet size is the same as defined
-	// via the Size spec of the Custom Resource which we are reconciling.
-	size := factoryServer.Spec.Size
-	if *stsFound.Spec.Replicas != size {
-		// Increment FactoryServerDeploymentSizeUndesiredCountTotal metric by 1
-		// monitoring.FactoryServerDeploymentSizeUndesiredCountTotal.Inc()
-		stsFound.Spec.Replicas = &size
-		if err = r.Update(ctx, stsFound); err != nil {
-			log.Error(err, "Failed to update StatefulSet",
-				"StatefulSet.Namespace", stsFound.Namespace, "StatefulSet.Name", stsFound.Name)
-
-			// Re-fetch the factoryServer Custom Resource before update the status
-			// so that we have the latest state of the resource on the cluster and we will avoid
-			// raise the issue "the object has been modified, please apply
-			// your changes to the latest version and try again" which would re-trigger the reconciliation
-			if err := r.Get(ctx, req.NamespacedName, factoryServer); err != nil {
-				log.Error(err, "Failed to re-fetch FactoryServer")
-				return ctrl.Result{}, err
-			}
-
-			// The following implementation will update the status
-			meta.SetStatusCondition(&factoryServer.Status.Conditions, metav1.Condition{
-				Type:   typeAvailableFactoryServer,
-				Status: metav1.ConditionFalse, Reason: "Resizing",
-				Message: fmt.Sprintf("Failed to update the size for the custom resource (%s): (%s)", factoryServer.Name, err),
-			})
-
-			if err := r.Status().Update(ctx, factoryServer); err != nil {
-				log.Error(err, "Failed to update FactoryServer status")
-				return ctrl.Result{}, err
-			}
-
-			return ctrl.Result{}, err
-		}
-
-		// Now, that we update the size we want to requeue the reconciliation
-		// so that we can ensure that we have the latest state of the resource before
-		// update. Also, it will help ensure the desired state on the cluster
-		return ctrl.Result{Requeue: true}, nil
-	}
-
-	// The following implementation will update the status
-	meta.SetStatusCondition(&factoryServer.Status.Conditions, metav1.Condition{
-		Type:   typeAvailableFactoryServer,
-		Status: metav1.ConditionTrue, Reason: "Reconciling",
-		Message: fmt.Sprintf("Deployment for custom resource (%s) with %d replicas created successfully", factoryServer.Name, size),
-	})
-
-	if err := r.Status().Update(ctx, factoryServer); err != nil {
-		log.Error(err, "Failed to update FactoryServer status")
-		return ctrl.Result{}, err
+	if result, err = r.ensureService(ctx, req, factoryServer, r.serviceForFactoryServer(factoryServer)); result != nil {
+		return *result, err
 	}
 
 	// Update the FactoryServer status with the pod names
@@ -363,6 +248,23 @@ func (r *FactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
+func (r *FactoryServerReconciler) setStatusCondition(ctx context.Context, f *satisfactoryv1alpha1.FactoryServer, t string, s metav1.ConditionStatus, re string, m string) error {
+	log := log.FromContext(ctx)
+	// The following implementation will update the status
+	meta.SetStatusCondition(&f.Status.Conditions, metav1.Condition{
+		Type:    t,
+		Status:  s,
+		Reason:  re,
+		Message: m,
+	})
+
+	if err := r.Status().Update(ctx, f); err != nil {
+		log.Error(err, "Failed to update FactoryServer status")
+		return err
+	}
+	return nil
+}
+
 func (r *FactoryServerReconciler) doFinalizerOperationsForFactoryServer(cr *satisfactoryv1alpha1.FactoryServer) {
 	// TODO(user): Add the cleanup steps that the operator
 	// needs to do before the CR can be deleted. Examples
@@ -382,15 +284,16 @@ func (r *FactoryServerReconciler) doFinalizerOperationsForFactoryServer(cr *sati
 			cr.Namespace))
 }
 
-// statefulsetForFactoryServer returns a factoryServer Deployment object
-func (r *FactoryServerReconciler) statefulsetForFactoryServer(f *satisfactoryv1alpha1.FactoryServer) (*appsv1.StatefulSet, error) {
+// statefulsetForFactoryServer returns a factoryServer StatefulSet object
+func (r *FactoryServerReconciler) statefulsetForFactoryServer(f *satisfactoryv1alpha1.FactoryServer) *appsv1.StatefulSet {
 	ls := labelsForFactoryServer(f)
 	replicas := f.Spec.Size
 
 	sts := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      f.Name,
+			Name:      factoryServerStatefulSetName(f),
 			Namespace: f.Namespace,
+			Labels:    ls,
 		},
 		Spec: appsv1.StatefulSetSpec{
 			Replicas: &replicas,
@@ -409,8 +312,8 @@ func (r *FactoryServerReconciler) statefulsetForFactoryServer(f *satisfactoryv1a
 						FSGroup:      &[]int64{0}[0],
 					},
 					Containers: []corev1.Container{{
-						Name:  "factory-server",
-						Image: "wolveix/satisfactory-server:v1.2.5",
+						Name:  factoryServerServiceName(f),
+						Image: imageForFactoryServer(f),
 						Ports: []corev1.ContainerPort{
 							{
 								Name:          "query",
@@ -428,68 +331,20 @@ func (r *FactoryServerReconciler) statefulsetForFactoryServer(f *satisfactoryv1a
 								Protocol:      "UDP",
 							},
 						},
-						Env: []corev1.EnvVar{
+						EnvFrom: []corev1.EnvFromSource{
 							{
-								Name:  "AUTOPAUSE",
-								Value: strconv.FormatBool(f.Spec.Autopause),
-							},
-							{
-								Name:  "AUTOSAVEINTERVAL",
-								Value: strconv.FormatUint(f.Spec.Autosave.Interval, 10),
-							},
-							{
-								Name:  "AUTOSAVENUM",
-								Value: strconv.FormatUint(f.Spec.Autosave.Num, 10),
-							},
-							{
-								Name:  "AUTOSAVEONDISCONNECT",
-								Value: strconv.FormatBool(f.Spec.Autosave.OnDisconnect),
-							},
-							{
-								Name:  "CRASHREPORT",
-								Value: strconv.FormatBool(f.Spec.CrashReport),
-							},
-							{
-								Name:  "DEBUG",
-								Value: strconv.FormatBool(f.Spec.Debug),
-							},
-							{
-								Name:  "DISABLESEASONALEVENTS",
-								Value: strconv.FormatBool(f.Spec.DisableSeasonalEvents),
-							},
-							{
-								Name:  "MAXPLAYERS",
-								Value: strconv.FormatUint(f.Spec.Maxplayers, 10),
-							},
-							{
-								Name:  "NETWORKQUALITY",
-								Value: strconv.FormatUint(f.Spec.Networkquality, 10),
-							},
-							{
-								Name:  "SERVERBEACONPORT",
-								Value: strconv.FormatInt(int64(f.Spec.Ports.Beacon), 10),
-							},
-							{
-								Name:  "SERVERGAMEPORT",
-								Value: strconv.FormatInt(int64(f.Spec.Ports.Game), 10),
-							},
-							{
-								Name:  "SERVERQUERYPORT",
-								Value: strconv.FormatInt(int64(f.Spec.Ports.Query), 10),
-							},
-							{
-								Name:  "SKIPUPDATE",
-								Value: strconv.FormatBool(f.Spec.SkipUpdate),
-							},
-							{
-								Name:  "STEAMBETA",
-								Value: strconv.FormatBool(f.Spec.Beta),
+								ConfigMapRef: &corev1.ConfigMapEnvSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: factoryServerConfigMapName(f),
+									},
+									Optional: &[]bool{false}[0],
+								},
 							},
 						},
 						Resources: corev1.ResourceRequirements{},
 						VolumeMounts: []corev1.VolumeMount{
 							{
-								Name:      fmt.Sprintf("%s-%s", f.Name, "data"),
+								Name:      factoryServerPersistentVolumeClaimName(f),
 								MountPath: "/config",
 							},
 						},
@@ -512,7 +367,7 @@ func (r *FactoryServerReconciler) statefulsetForFactoryServer(f *satisfactoryv1a
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      fmt.Sprintf("%s-%s", f.Name, "data"),
+					Name:      factoryServerPersistentVolumeClaimName(f),
 					Namespace: f.Namespace,
 				},
 				Spec: corev1.PersistentVolumeClaimSpec{
@@ -521,11 +376,15 @@ func (r *FactoryServerReconciler) statefulsetForFactoryServer(f *satisfactoryv1a
 					},
 					Resources: corev1.ResourceRequirements{
 						Requests: corev1.ResourceList{
-							corev1.ResourceStorage: resource.MustParse("50Gi"),
+							corev1.ResourceStorage: resource.MustParse(f.Spec.StorageRequests),
 						},
 					},
 				},
 			}},
+			PersistentVolumeClaimRetentionPolicy: &appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy{
+				WhenDeleted: appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
+				WhenScaled:  appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
+			},
 		},
 	}
 
@@ -533,20 +392,20 @@ func (r *FactoryServerReconciler) statefulsetForFactoryServer(f *satisfactoryv1a
 		sts.Spec.VolumeClaimTemplates[0].Spec.StorageClassName = &f.Spec.StorageClass
 	}
 
+	sts.Labels[factoryServerLastAppliedHash] = asSha256(sts)
+
 	// Set FactoryServer instance as the owner and controller
-	if err := ctrl.SetControllerReference(f, sts, r.Scheme); err != nil {
-		return nil, err
-	}
-	return sts, nil
+	ctrl.SetControllerReference(f, sts, r.Scheme)
+	return sts
 }
 
 // serviceForFactoryServer returns a factoryServer Service object
-func (r *FactoryServerReconciler) serviceForFactoryServer(f *satisfactoryv1alpha1.FactoryServer) (*corev1.Service, error) {
+func (r *FactoryServerReconciler) serviceForFactoryServer(f *satisfactoryv1alpha1.FactoryServer) *corev1.Service {
 	ls := labelsForFactoryServer(f)
 
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      f.Name,
+			Name:      factoryServerServiceName(f),
 			Namespace: f.Namespace,
 			Labels:    ls,
 		},
@@ -597,11 +456,47 @@ func (r *FactoryServerReconciler) serviceForFactoryServer(f *satisfactoryv1alpha
 		}
 	}
 
+	svc.Labels[factoryServerLastAppliedHash] = asSha256(svc)
+
 	// Set FactoryServer instance as the owner and controller
-	if err := ctrl.SetControllerReference(f, svc, r.Scheme); err != nil {
-		return nil, err
+	ctrl.SetControllerReference(f, svc, r.Scheme)
+	return svc
+}
+
+// serviceForFactoryServer returns a factoryServer Service object
+func (r *FactoryServerReconciler) configMapForFactoryServer(f *satisfactoryv1alpha1.FactoryServer) *corev1.ConfigMap {
+	ls := labelsForFactoryServer(f)
+
+	data := make(map[string]string)
+	data["AUTOPAUSE"] = strconv.FormatBool(f.Spec.Autopause)
+	data["AUTOSAVEINTERVAL"] = strconv.FormatUint(f.Spec.Autosave.Interval, 10)
+	data["AUTOSAVENUM"] = strconv.FormatUint(f.Spec.Autosave.Num, 10)
+	data["AUTOSAVEONDISCONNECT"] = strconv.FormatBool(f.Spec.Autosave.OnDisconnect)
+	data["CRASHREPORT"] = strconv.FormatBool(f.Spec.CrashReport)
+	data["DEBUG"] = strconv.FormatBool(f.Spec.Debug)
+	data["DISABLESEASONALEVENTS"] = strconv.FormatBool(f.Spec.DisableSeasonalEvents)
+	data["MAXPLAYERS"] = strconv.FormatUint(f.Spec.Maxplayers, 10)
+	data["NETWORKQUALITY"] = strconv.FormatUint(f.Spec.Networkquality, 10)
+	data["SERVERBEACONPORT"] = strconv.FormatInt(int64(f.Spec.Ports.Beacon), 10)
+	data["SERVERGAMEPORT"] = strconv.FormatInt(int64(f.Spec.Ports.Game), 10)
+	data["SERVERQUERYPORT"] = strconv.FormatInt(int64(f.Spec.Ports.Query), 10)
+	data["SKIPUPDATE"] = strconv.FormatBool(f.Spec.SkipUpdate)
+	data["STEAMBETA"] = strconv.FormatBool(f.Spec.Beta)
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      factoryServerConfigMapName(f),
+			Namespace: f.Namespace,
+			Labels:    ls,
+		},
+		Data: data,
 	}
-	return svc, nil
+
+	cm.Labels[factoryServerLastAppliedHash] = asSha256(cm)
+
+	// Set FactoryServer instance as the owner and controller
+	ctrl.SetControllerReference(f, cm, r.Scheme)
+	return cm
 }
 
 // labelsForFactoryServer returns the labels for selecting the resources
@@ -619,8 +514,8 @@ func labelsForFactoryServer(f *satisfactoryv1alpha1.FactoryServer) map[string]st
 	}
 }
 
-// imageForMemcached gets the Operand image which is managed by this controller
-// from the MEMCACHED_IMAGE environment variable defined in the config/manager/manager.yaml
+// imageForFactoryServer gets the Operand image which is managed by this controller
+// from the FACTORYSERVER_IMAGE environment variable defined in the config/manager/manager.yaml
 func imageForFactoryServer(f *satisfactoryv1alpha1.FactoryServer) string {
 	var imageEnvVar = "FACTORYSERVER_IMAGE"
 	image, found := os.LookupEnv(imageEnvVar)
@@ -639,11 +534,288 @@ func getPodNames(pods []corev1.Pod) []string {
 	return podNames
 }
 
+func factoryServerStatefulSetName(f *satisfactoryv1alpha1.FactoryServer) string {
+	return f.Name + "-server"
+}
+
+func factoryServerPersistentVolumeClaimName(f *satisfactoryv1alpha1.FactoryServer) string {
+	return f.Name + "-pvc"
+}
+
+func factoryServerServiceName(f *satisfactoryv1alpha1.FactoryServer) string {
+	return f.Name + "-svc"
+}
+
+func factoryServerConfigMapName(f *satisfactoryv1alpha1.FactoryServer) string {
+	return f.Name + "-cm"
+}
+
+func (r *FactoryServerReconciler) ensureConfigMap(ctx context.Context, req reconcile.Request, f *satisfactoryv1alpha1.FactoryServer, c *corev1.ConfigMap) (*ctrl.Result, error) {
+	log := log.FromContext(ctx)
+	needsUpdate := false
+	found := &corev1.ConfigMap{}
+	err := r.Client.Get(ctx, types.NamespacedName{Name: c.Name, Namespace: c.Namespace}, found)
+	if err != nil && errors.IsNotFound(err) {
+		// Define a new Service
+		log.Info("Creating a new ConfigMap", "ConfigMap.Namespace", c.Namespace, "ConfigMap.Name", c.Name)
+		if err = r.Client.Create(ctx, c); err != nil {
+			// Creation failed
+			log.Error(err, "Failed to create new ConfigMap", "ConfigMap.Namespace", c.Namespace, "ConfigMap.Name", c.Name)
+
+			if err := r.setStatusCondition(
+				ctx,
+				f,
+				typeAvailableFactoryServer,
+				metav1.ConditionFalse,
+				"Reconciling",
+				fmt.Sprintf("Failed to create ConfigMap for the custom resource (%s): (%s)", f.Name, err),
+			); err != nil {
+				return &ctrl.Result{}, err
+			}
+			return &ctrl.Result{}, err
+		}
+
+		if err := r.setStatusCondition(
+			ctx,
+			f,
+			typeAvailableFactoryServer,
+			metav1.ConditionTrue,
+			"Reconciling",
+			fmt.Sprintf("ConfigMap for custom resource (%s) created successfully", f.Name),
+		); err != nil {
+			return &ctrl.Result{}, err
+		}
+		return &ctrl.Result{}, nil
+	} else if err != nil {
+		// Error that isn't due to the configMap not existing
+		log.Error(err, "Failed to get ConfigMap")
+		return &ctrl.Result{}, err
+	}
+
+	if c.Labels[factoryServerLastAppliedHash] != getLastAppliedHash(found.Labels) {
+		needsUpdate = true
+	}
+
+	if needsUpdate {
+		if err = r.Update(ctx, found); err != nil {
+			log.Error(err, "Failed to update ConfigMap", "ConfigMap.Namespace", found.Namespace, "ConfigMap.Name", found.Name)
+			if err := r.setStatusCondition(
+				ctx,
+				f,
+				typeAvailableFactoryServer,
+				metav1.ConditionFalse,
+				"Reconciling",
+				fmt.Sprintf("Failed to update ConfigMap for the custom resource (%s): (%s)", f.Name, err),
+			); err != nil {
+				return &ctrl.Result{}, err
+			}
+			return &ctrl.Result{}, err
+		}
+
+		log.Info("Updating ConfigMap", "ConfigMap.Namespace", c.Namespace, "ConfigMap.Name", c.Name)
+		if err := r.setStatusCondition(
+			ctx,
+			f,
+			typeAvailableFactoryServer,
+			metav1.ConditionTrue,
+			"Reconciling",
+			fmt.Sprintf("ConfigMap for custom resource (%s) updated successfully", f.Name),
+		); err != nil {
+			return &ctrl.Result{}, err
+		}
+		return &ctrl.Result{}, err
+	}
+	return nil, nil
+}
+
+func (r *FactoryServerReconciler) ensureService(ctx context.Context, req reconcile.Request, f *satisfactoryv1alpha1.FactoryServer, s *corev1.Service) (*ctrl.Result, error) {
+	log := log.FromContext(ctx)
+	needsUpdate := false
+
+	// Check if the service already exists, if not create a new one
+	found := &corev1.Service{}
+	err := r.Get(ctx, types.NamespacedName{Name: s.Name, Namespace: s.Namespace}, found)
+	if err != nil && errors.IsNotFound(err) {
+		// Define a new Service
+		log.Info("Creating a new Service", "Service.Namespace", s.Namespace, "Service.Name", s.Name)
+		if err = r.Create(ctx, s); err != nil {
+			log.Error(err, "Failed to create new Service", "Service.Namespace", s.Namespace, "Service.Name", s.Name)
+			if err := r.setStatusCondition(
+				ctx,
+				f,
+				typeAvailableFactoryServer,
+				metav1.ConditionFalse,
+				"Reconciling",
+				fmt.Sprintf("Failed to create Service for the custom resource (%s): (%s)", f.Name, err),
+			); err != nil {
+				return &ctrl.Result{}, err
+			}
+			return &ctrl.Result{}, err
+		}
+		// We will requeue the reconciliation so that we can ensure the state
+		// and move forward for the next operations
+		if err := r.setStatusCondition(
+			ctx,
+			f,
+			typeAvailableFactoryServer,
+			metav1.ConditionTrue,
+			"Reconciling",
+			fmt.Sprintf("Service for custom resource (%s) created successfully", f.Name),
+		); err != nil {
+			return &ctrl.Result{}, err
+		}
+		return &ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
+	} else if err != nil {
+		// Error that isn't due to the service not existing
+		log.Error(err, "Failed to get Service")
+		return &ctrl.Result{}, err
+	}
+
+	if s.Labels[factoryServerLastAppliedHash] != getLastAppliedHash(found.Labels) {
+		needsUpdate = true
+		found.Labels = s.Labels
+		found.Spec.Selector = s.Spec.Selector
+		found.Spec.Type = s.Spec.Type
+		found.Spec.Ports = s.Spec.Ports
+	}
+
+	if needsUpdate {
+		if err = r.Update(ctx, found); err != nil {
+			log.Error(err, "Failed to update Service", "Service.Namespace", found.Namespace, "Service.Name", found.Name)
+			if err := r.setStatusCondition(
+				ctx,
+				f,
+				typeAvailableFactoryServer,
+				metav1.ConditionFalse,
+				"Reconciling",
+				fmt.Sprintf("Failed to update Service for the custom resource (%s): (%s)", f.Name, err),
+			); err != nil {
+				return &ctrl.Result{}, err
+			}
+			return &ctrl.Result{}, err
+		}
+
+		log.Info("Updating Service", "Service.Namespace", found.Namespace, "Service.Name", found.Name)
+		if err := r.setStatusCondition(
+			ctx,
+			f,
+			typeAvailableFactoryServer,
+			metav1.ConditionTrue,
+			"Reconciling",
+			fmt.Sprintf("Service for custom resource (%s) updated successfully", f.Name),
+		); err != nil {
+			return &ctrl.Result{}, err
+		}
+		return &ctrl.Result{}, err
+	}
+	return nil, nil
+}
+
+func (r *FactoryServerReconciler) ensureStatefulSet(ctx context.Context, req reconcile.Request, f *satisfactoryv1alpha1.FactoryServer, s *appsv1.StatefulSet) (*ctrl.Result, error) {
+	log := log.FromContext(ctx)
+	needsUpdate := false
+
+	// Check if the StatefulSet already exists, if not create a new one
+	found := &appsv1.StatefulSet{}
+	err := r.Get(ctx, types.NamespacedName{Name: s.Name, Namespace: s.Namespace}, found)
+	if err != nil && errors.IsNotFound(err) {
+		// Define a new StatefulSet
+		log.Info("Creating a new StatefulSet", "StatefulSet.Namespace", s.Namespace, "StatefulSet.Name", s.Name)
+		if err = r.Create(ctx, s); err != nil {
+			log.Error(err, "Failed to create new StatefulSet", "StatefulSet.Namespace", s.Namespace, "StatefulSet.Name", s.Name)
+			if err := r.setStatusCondition(
+				ctx,
+				f,
+				typeAvailableFactoryServer,
+				metav1.ConditionFalse,
+				"Reconciling",
+				fmt.Sprintf("Failed to create StatefulSet for the custom resource (%s): (%s)", f.Name, err),
+			); err != nil {
+				return &ctrl.Result{}, err
+			}
+			return &ctrl.Result{}, err
+		}
+		// We will requeue the reconciliation so that we can ensure the state
+		// and move forward for the next operations
+		if err := r.setStatusCondition(
+			ctx,
+			f,
+			typeAvailableFactoryServer,
+			metav1.ConditionTrue,
+			"Reconciling",
+			fmt.Sprintf("StatefulSet for custom resource (%s) created successfully", f.Name),
+		); err != nil {
+			return &ctrl.Result{}, err
+		}
+		return &ctrl.Result{Requeue: true, RequeueAfter: time.Second * 30}, nil
+	} else if err != nil {
+		// Error that isn't due to the service not existing
+		log.Error(err, "Failed to get StatefulSet")
+		return &ctrl.Result{}, err
+	}
+
+	if s.Labels[factoryServerLastAppliedHash] != getLastAppliedHash(found.Labels) {
+		needsUpdate = true
+		found.Labels = s.Labels
+		found.Spec.Replicas = s.Spec.Replicas
+		found.Spec.Template.Spec = s.Spec.Template.Spec
+		found.Spec.UpdateStrategy = s.Spec.UpdateStrategy
+		found.Spec.PersistentVolumeClaimRetentionPolicy = s.Spec.PersistentVolumeClaimRetentionPolicy
+		found.Spec.MinReadySeconds = s.Spec.MinReadySeconds
+	}
+
+	if needsUpdate {
+		if err = r.Update(ctx, found); err != nil {
+			log.Error(err, "Failed to update StatefulSet", "StatefulSet.Namespace", found.Namespace, "StatefulSet.Name", found.Name)
+			if err := r.setStatusCondition(
+				ctx,
+				f,
+				typeAvailableFactoryServer,
+				metav1.ConditionFalse,
+				"Reconciling",
+				fmt.Sprintf("Failed to update StatefulSet for the custom resource (%s): (%s)", f.Name, err),
+			); err != nil {
+				return &ctrl.Result{}, err
+			}
+			return &ctrl.Result{}, err
+		}
+
+		log.Info("Updating StatefulSet", "StatefulSet.Namespace", found.Namespace, "StatefulSet.Name", found.Name)
+		if err := r.setStatusCondition(
+			ctx,
+			f,
+			typeAvailableFactoryServer,
+			metav1.ConditionTrue,
+			"Reconciling",
+			fmt.Sprintf("StatefulSet for custom resource (%s) updated successfully", f.Name),
+		); err != nil {
+			return &ctrl.Result{}, err
+		}
+		return &ctrl.Result{}, err
+	}
+	return nil, nil
+}
+
+func asSha256(o interface{}) string {
+	m, _ := json.Marshal(o)
+	h := sha256.New()
+	h.Write([]byte(fmt.Sprintf("%v", m)))
+	return fmt.Sprintf("%x", h.Sum(nil))[:63]
+}
+
+func getLastAppliedHash(labels map[string]string) string {
+	if val, ok := labels[factoryServerLastAppliedHash]; ok {
+		return val
+	}
+	return ""
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *FactoryServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&satisfactoryv1alpha1.FactoryServer{}).
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&corev1.Service{}).
+		Owns(&corev1.ConfigMap{}).
 		Complete(r)
 }

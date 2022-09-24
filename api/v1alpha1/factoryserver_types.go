@@ -32,7 +32,7 @@ type FactoryServerSpec struct {
 	// Size is the size of the FactoryServer StatefulSet
 	//+optional
 	//+kubebuilder:default=1
-	//+kubebuilder:validation:Minimum=1
+	//+kubebuilder:validation:Minimum=0
 	//+kubebuilder:validation:Maximum=1
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
 	Size int32 `json:"size,omitempty"`
@@ -47,6 +47,12 @@ type FactoryServerSpec struct {
 	//+optional
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
 	StorageClass string `json:"storageClass,omitempty"`
+
+	// StorageClassName is the size of the FactoryServer StatefulSet
+	//+optional
+	//+kubebuilder:default="50Gi"
+	//+operator--sdk:csv:customresourcedefinitions:type=spec
+	StorageRequests string `json:"storageRequests,omitempty"`
 
 	// Autopause
 	//+optional
