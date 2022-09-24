@@ -1,0 +1,19 @@
+domain: pc-ziegert.de
+layout:
+- go.kubebuilder.io/v4-alpha
+plugins:
+  manifests.sdk.operatorframework.io/v2: {}
+  scorecard.sdk.operatorframework.io/v2: {}
+projectName: satisfactory-operator
+repo: git.pc-ziegert.de/operators/satisfactory
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: pc-ziegert.de
+  group: satisfactory
+  kind: FactoryServer
+  path: git.pc-ziegert.de/operators/satisfactory/api/v1alpha1
+  version: v1alpha1
+version: "3"

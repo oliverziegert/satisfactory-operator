@@ -1,0 +1,24 @@
+# permissions for end users to edit factoryservers.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: factoryserver-editor-role
+rules:
+- apiGroups:
+  - satisfactory.pc-ziegert.de
+  resources:
+  - factoryservers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - satisfactory.pc-ziegert.de
+  resources:
+  - factoryservers/status
+  verbs:
+  - get

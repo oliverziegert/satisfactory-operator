@@ -1,0 +1,20 @@
+# permissions for end users to view factoryservers.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: factoryserver-viewer-role
+rules:
+- apiGroups:
+  - satisfactory.pc-ziegert.de
+  resources:
+  - factoryservers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - satisfactory.pc-ziegert.de
+  resources:
+  - factoryservers/status
+  verbs:
+  - get
