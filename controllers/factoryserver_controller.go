@@ -75,7 +75,7 @@ type FactoryServerReconciler struct {
 //+kubebuilder:rbac:groups=satisfactory.pc-ziegert.de,resources=factoryservers/finalizers,verbs=update
 //+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 //+kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=core,resources=pods;services,verbs=get;list;watch;create;update;patch;delete;
+//+kubebuilder:rbac:groups=core,resources=pods;services;configmaps,verbs=get;list;watch;create;update;patch;delete;
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -286,23 +286,22 @@ func (r *FactoryServerReconciler) doFinalizerOperationsForFactoryServer(cr *sati
 
 // statefulsetForFactoryServer returns a factoryServer StatefulSet object
 func (r *FactoryServerReconciler) statefulsetForFactoryServer(f *satisfactoryv1alpha1.FactoryServer) *appsv1.StatefulSet {
-	ls := labelsForFactoryServer(f)
 	replicas := f.Spec.Size
 
 	sts := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      factoryServerStatefulSetName(f),
 			Namespace: f.Namespace,
-			Labels:    ls,
+			Labels:    labelsForFactoryServer(f),
 		},
 		Spec: appsv1.StatefulSetSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: ls,
+				MatchLabels: labelsForFactoryServer(f),
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: ls,
+					Labels: labelsForFactoryServer(f),
 				},
 				Spec: corev1.PodSpec{
 					SecurityContext: &corev1.PodSecurityContext{
@@ -341,7 +340,16 @@ func (r *FactoryServerReconciler) statefulsetForFactoryServer(f *satisfactoryv1a
 								},
 							},
 						},
-						Resources: corev1.ResourceRequirements{},
+						Resources: corev1.ResourceRequirements{
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("4"),
+								corev1.ResourceMemory: resource.MustParse("16Gi"),
+							},
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("250m"),
+								corev1.ResourceMemory: resource.MustParse("512Mi"),
+							},
+						},
 						VolumeMounts: []corev1.VolumeMount{
 							{
 								Name:      factoryServerPersistentVolumeClaimName(f),
@@ -392,7 +400,7 @@ func (r *FactoryServerReconciler) statefulsetForFactoryServer(f *satisfactoryv1a
 		sts.Spec.VolumeClaimTemplates[0].Spec.StorageClassName = &f.Spec.StorageClass
 	}
 
-	sts.Labels[factoryServerLastAppliedHash] = asSha256(sts)
+	sts.ObjectMeta.Labels[factoryServerLastAppliedHash] = asSha256(sts)
 
 	// Set FactoryServer instance as the owner and controller
 	ctrl.SetControllerReference(f, sts, r.Scheme)
@@ -401,13 +409,12 @@ func (r *FactoryServerReconciler) statefulsetForFactoryServer(f *satisfactoryv1a
 
 // serviceForFactoryServer returns a factoryServer Service object
 func (r *FactoryServerReconciler) serviceForFactoryServer(f *satisfactoryv1alpha1.FactoryServer) *corev1.Service {
-	ls := labelsForFactoryServer(f)
 
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      factoryServerServiceName(f),
 			Namespace: f.Namespace,
-			Labels:    ls,
+			Labels:    labelsForFactoryServer(f),
 		},
 		Spec: corev1.ServiceSpec{
 			Ports: []corev1.ServicePort{
@@ -430,7 +437,7 @@ func (r *FactoryServerReconciler) serviceForFactoryServer(f *satisfactoryv1alpha
 					TargetPort: intstr.IntOrString{Type: intstr.String, StrVal: "game"},
 				},
 			},
-			Selector: ls,
+			Selector: labelsForFactoryServer(f),
 			Type:     f.Spec.Service.Type,
 		},
 	}
@@ -456,7 +463,7 @@ func (r *FactoryServerReconciler) serviceForFactoryServer(f *satisfactoryv1alpha
 		}
 	}
 
-	svc.Labels[factoryServerLastAppliedHash] = asSha256(svc)
+	svc.ObjectMeta.Labels[factoryServerLastAppliedHash] = asSha256(svc)
 
 	// Set FactoryServer instance as the owner and controller
 	ctrl.SetControllerReference(f, svc, r.Scheme)
@@ -465,8 +472,6 @@ func (r *FactoryServerReconciler) serviceForFactoryServer(f *satisfactoryv1alpha
 
 // serviceForFactoryServer returns a factoryServer Service object
 func (r *FactoryServerReconciler) configMapForFactoryServer(f *satisfactoryv1alpha1.FactoryServer) *corev1.ConfigMap {
-	ls := labelsForFactoryServer(f)
-
 	data := make(map[string]string)
 	data["AUTOPAUSE"] = strconv.FormatBool(f.Spec.Autopause)
 	data["AUTOSAVEINTERVAL"] = strconv.FormatUint(f.Spec.Autosave.Interval, 10)
@@ -487,12 +492,12 @@ func (r *FactoryServerReconciler) configMapForFactoryServer(f *satisfactoryv1alp
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      factoryServerConfigMapName(f),
 			Namespace: f.Namespace,
-			Labels:    ls,
+			Labels:    labelsForFactoryServer(f),
 		},
 		Data: data,
 	}
 
-	cm.Labels[factoryServerLastAppliedHash] = asSha256(cm)
+	cm.ObjectMeta.Labels[factoryServerLastAppliedHash] = asSha256(cm)
 
 	// Set FactoryServer instance as the owner and controller
 	ctrl.SetControllerReference(f, cm, r.Scheme)
@@ -594,6 +599,8 @@ func (r *FactoryServerReconciler) ensureConfigMap(ctx context.Context, req recon
 
 	if c.Labels[factoryServerLastAppliedHash] != getLastAppliedHash(found.Labels) {
 		needsUpdate = true
+		found.ObjectMeta.Labels = c.ObjectMeta.Labels
+		found.Data = c.Data
 	}
 
 	if needsUpdate {
