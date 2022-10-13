@@ -3,7 +3,4 @@ kind: FactoryServer
 metadata:
   name: factoryserver-sample
   namespace: satisfactory
-spec:
-  autosave: {}
-  ports: {}
-  service: {}
+spec: {}

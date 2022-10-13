@@ -33,30 +33,30 @@ spec:
           metadata:
             type: object
           spec:
-            description: FactoryServerSpec defines the desired state of FactoryServer
+            description: FactoryServerSpec defines the desired state of FactoryServe
             properties:
               autopause:
                 default: false
                 description: Autopause
                 type: boolean
-              autosave:
-                description: AutosaveSpec
-                properties:
-                  interval:
-                    default: 300
-                    description: Interval
-                    format: int64
-                    type: integer
-                  num:
-                    default: 5
-                    description: Num
-                    format: int64
-                    type: integer
-                  onDisconnect:
-                    default: true
-                    description: OnDisconnect
-                    type: boolean
-                type: object
+              autosaveInterval:
+                default: 300
+                description: Interval
+                format: int64
+                type: integer
+              autosaveNum:
+                default: 5
+                description: Num
+                format: int64
+                type: integer
+              autosaveOnDisconnect:
+                default: true
+                description: OnDisconnect
+                type: boolean
+              beta:
+                default: false
+                description: Beta
+                type: boolean
               crashReport:
                 default: false
                 description: CrashReport
@@ -83,76 +83,64 @@ spec:
                 description: Networkquality
                 format: int64
                 type: integer
-              ports:
-                description: Ports
-                properties:
-                  beacon:
-                    default: 15000
-                    description: Beacon
-                    format: int32
-                    maximum: 65535
-                    minimum: 1
-                    type: integer
-                  game:
-                    default: 7777
-                    description: Game
-                    format: int32
-                    maximum: 65535
-                    minimum: 1
-                    type: integer
-                  query:
-                    default: 15777
-                    description: Query
-                    format: int32
-                    maximum: 65535
-                    minimum: 1
-                    type: integer
-                type: object
-              service:
-                description: Service
-                properties:
-                  loadBalancerClass:
-                    description: LoadBalancerClass
-                    type: string
-                  loadBalancerSourceRanges:
-                    description: LoadBalancerSourceRanges
-                    items:
-                      type: string
-                    type: array
-                  nodePorts:
-                    description: NodePorts
-                    properties:
-                      beacon:
-                        default: 15000
-                        description: Beacon
-                        format: int32
-                        maximum: 65535
-                        minimum: 1
-                        type: integer
-                      game:
-                        default: 7777
-                        description: Game
-                        format: int32
-                        maximum: 65535
-                        minimum: 1
-                        type: integer
-                      query:
-                        default: 15777
-                        description: Query
-                        format: int32
-                        maximum: 65535
-                        minimum: 1
-                        type: integer
-                    type: object
-                  type:
-                    default: ClusterIP
-                    description: Type
-                    enum:
-                    - ClusterIP
-                    - NodePort
-                    - LoadBalancer
-                    type: string
-                type: object
+              portBeacon:
+                default: 15000
+                description: Beacon
+                format: int32
+                maximum: 65535
+                minimum: 1
+                type: integer
+              portGame:
+                default: 7777
+                description: Game
+                format: int32
+                maximum: 65535
+                minimum: 1
+                type: integer
+              portQuery:
+                default: 15777
+                description: Query
+                format: int32
+                maximum: 65535
+                minimum: 1
+                type: integer
+              serviceLoadBalancerClass:
+                description: LoadBalancerClass
+                type: string
+              serviceLoadBalancerSourceRanges:
+                description: LoadBalancerSourceRanges
+                items:
+                  type: string
+                type: array
+              serviceNodePortBeacon:
+                default: 15000
+                description: Beacon
+                format: int32
+                maximum: 65535
+                minimum: 1
+                type: integer
+              serviceNodePortGame:
+                default: 7777
+                description: Game
+                format: int32
+                maximum: 65535
+                minimum: 1
+                type: integer
+              serviceNodePortQuery:
+                default: 15777
+                description: Query
+                format: int32
+                maximum: 65535
+                minimum: 1
+                type: integer
+              serviceType:
+                default: ClusterIP
+                description: Type
+                enum:
+                - ClusterIP
+                - NodePort
+                - LoadBalancer
+                type: string
               size:
                 default: 1
                 description: Size is the size of the FactoryServer StatefulSet
@@ -163,10 +151,6 @@ spec:
               skipUpdate:
                 default: false
                 description: SkipUpdate
-                type: boolean
-              steamBeta:
-                default: false
-                description: Beta
                 type: boolean
               storageClass:
                 description: StorageClassName is the size of the FactoryServer StatefulSet

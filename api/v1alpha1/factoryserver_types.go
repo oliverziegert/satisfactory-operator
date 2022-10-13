@@ -24,7 +24,7 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// FactoryServerSpec defines the desired state of FactoryServer
+// FactoryServerSpec defines the desired state of FactoryServe
 type FactoryServerSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
@@ -35,112 +35,77 @@ type FactoryServerSpec struct {
 	//+kubebuilder:validation:Minimum=0
 	//+kubebuilder:validation:Maximum=1
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	Size int32 `json:"size,omitempty"`
+	Size int32 `json:"size,omitempty" operator:"StatefulSet.Spec.Replicas"`
 
 	// Image
 	//+optional
 	//+kubebuilder:default="wolveix/satisfactory-server:latest"
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	Image string `json:"image,omitempty"`
+	Image string `json:"image,omitempty" operator:"StatefulSet.Spec.Template.Spec.Containers[factory-server].Image"`
 
 	// StorageClassName is the size of the FactoryServer StatefulSet
 	//+optional
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	StorageClass string `json:"storageClass,omitempty"`
+	StorageClass string `json:"storageClass,omitempty" operator:"StatefulSet.Spec.VolumeClaimTemplates[ObjectMeta:Name=factory-server-pvc].Spec.StorageClassName"`
 
 	// StorageClassName is the size of the FactoryServer StatefulSet
 	//+optional
 	//+kubebuilder:default="50Gi"
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	StorageRequests string `json:"storageRequests,omitempty"`
+	StorageRequests string `json:"storageRequests,omitempty" operator:"StatefulSet.Spec.VolumeClaimTemplates[ObjectMeta:Name=factory-server-pvc].Spec.Resources.Requests{storage}"`
 
 	// Autopause
 	//+optional
 	//+kubebuilder:default=false
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	Autopause bool `json:"autopause,omitempty"`
-
-	// AutosaveSpec
-	//+optional
-	//+kubebuilder:default={}
-	Autosave AutosaveSpec `json:"autosave,omitempty"`
-
-	// CrashReport
-	//+optional
-	//+kubebuilder:default=false
-	CrashReport bool `json:"crashReport,omitempty"`
-
-	// Debug
-	//+optional
-	//+kubebuilder:default=false
-	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	Debug bool `json:"debug,omitempty"`
-
-	// DisableSeasonalEvents
-	//+optional
-	//+kubebuilder:default=false
-	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	DisableSeasonalEvents bool `json:"disableSeasonalEvents,omitempty"`
-
-	// Maxplayers
-	//+optional
-	//+kubebuilder:default=4
-	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	Maxplayers uint64 `json:"maxplayers,omitempty"`
-
-	// Networkquality
-	//+optional
-	//+kubebuilder:default=3
-	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	Networkquality uint64 `json:"networkquality,omitempty"`
-
-	// Ports
-	//+optional
-	//+kubebuilder:default={}
-	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	Ports *PortSpec `json:"ports,omitempty"`
-
-	// SkipUpdate
-	//+optional
-	//+kubebuilder:default=false
-	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	SkipUpdate bool `json:"skipUpdate,omitempty"`
-
-	// Beta
-	//+optional
-	//+kubebuilder:default=false
-	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	Beta bool `json:"steamBeta,omitempty"`
-
-	// Service
-	//+optional
-	//+kubebuilder:default={}
-	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	Service *ServiceSpec `json:"service,omitempty"`
-}
-
-type AutosaveSpec struct {
+	Autopause bool `json:"autopause,omitempty" operator:"ConfigMap.Data{AUTOPAUSE}"`
 
 	// Interval
 	//+optional
 	//+kubebuilder:default=300
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	Interval uint64 `json:"interval,omitempty"`
+	AutosaveInterval uint64 `json:"autosaveInterval,omitempty" operator:"ConfigMap.Data{AUTOSAVEINTERVAL}"`
 
 	// Num
 	//+optional
 	//+kubebuilder:default=5
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	Num uint64 `json:"num,omitempty"`
+	AutosaveNum uint64 `json:"autosaveNum,omitempty" operator:"ConfigMap.Data{AUTOSAVENUM}"`
 
 	// OnDisconnect
 	//+optional
 	//+kubebuilder:default=true
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	OnDisconnect bool `json:"onDisconnect,omitempty"`
-}
+	AutosaveOnDisconnect bool `json:"autosaveOnDisconnect,omitempty" operator:"ConfigMap.Data{AUTOSAVEONDISCONNECT}"`
 
-type PortSpec struct {
+	// CrashReport
+	//+optional
+	//+kubebuilder:default=false
+	CrashReport bool `json:"crashReport,omitempty" operator:"ConfigMap.Data{CRASHREPORT}"`
+
+	// Debug
+	//+optional
+	//+kubebuilder:default=false
+	//+operator--sdk:csv:customresourcedefinitions:type=spec
+	Debug bool `json:"debug,omitempty" operator:"ConfigMap.Data{DEBUG}"`
+
+	// DisableSeasonalEvents
+	//+optional
+	//+kubebuilder:default=false
+	//+operator--sdk:csv:customresourcedefinitions:type=spec
+	DisableSeasonalEvents bool `json:"disableSeasonalEvents,omitempty" operator:"ConfigMap.Data{DISABLESEASONALEVENTS}"`
+
+	// Maxplayers
+	//+optional
+	//+kubebuilder:default=4
+	//+operator--sdk:csv:customresourcedefinitions:type=spec
+	Maxplayers uint64 `json:"maxplayers,omitempty" operator:"ConfigMap.Data{MAXPLAYERS}"`
+
+	// Networkquality
+	//+optional
+	//+kubebuilder:default=3
+	//+operator--sdk:csv:customresourcedefinitions:type=spec
+	Networkquality uint64 `json:"networkquality,omitempty" operator:"ConfigMap.Data{NETWORKQUALITY}"`
 
 	// Beacon
 	//+optional
@@ -148,7 +113,7 @@ type PortSpec struct {
 	//+kubebuilder:validation:Minimum=1
 	//+kubebuilder:validation:Maximum=65535
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	Beacon int32 `json:"beacon,omitempty"`
+	PortBeacon int32 `json:"portBeacon,omitempty" operator:"ConfigMap.Data{SERVERBEACONPORT};Service.Spec.Ports[beacon].Port;StatefulSet.Spec.Template.Spec.Containers[factory-server].Ports[beacon].ContainerPort"`
 
 	// Game
 	//+optional
@@ -156,7 +121,7 @@ type PortSpec struct {
 	//+kubebuilder:validation:Minimum=1
 	//+kubebuilder:validation:Maximum=65535
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	Game int32 `json:"game,omitempty"`
+	PortGame int32 `json:"portGame,omitempty" operator:"ConfigMap.Data{SERVERGAMEPORT};Service.Spec.Ports[game].Port;StatefulSet.Spec.Template.Spec.Containers[factory-server].Ports[game].ContainerPort"`
 
 	// Query
 	//+optional
@@ -164,36 +129,36 @@ type PortSpec struct {
 	//+kubebuilder:validation:Minimum=1
 	//+kubebuilder:validation:Maximum=65535
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	Query int32 `json:"query,omitempty"`
-}
+	PortQuery int32 `json:"portQuery,omitempty" operator:"ConfigMap.Data{SERVERQUERYPORT};Service.Spec.Ports[query].Port;StatefulSet.Spec.Template.Spec.Containers[factory-server].Ports[query].ContainerPort"`
 
-type ServiceSpec struct {
+	// SkipUpdate
+	//+optional
+	//+kubebuilder:default=false
+	//+operator--sdk:csv:customresourcedefinitions:type=spec
+	SkipUpdate bool `json:"skipUpdate,omitempty" operator:"ConfigMap.Data{SKIPUPDATE}"`
+
+	// Beta
+	//+optional
+	//+kubebuilder:default=false
+	//+operator--sdk:csv:customresourcedefinitions:type=spec
+	Beta bool `json:"beta,omitempty" operator:"ConfigMap.Data{STEAMBETA}"`
 
 	// Type
 	//+optional
 	//+kubebuilder:default="ClusterIP"
 	//+kubebuilder:validation:Enum=ClusterIP;NodePort;LoadBalancer
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	Type corev1.ServiceType `json:"type,omitempty"`
+	ServiceType corev1.ServiceType `json:"serviceType,omitempty" operator:"Service.Spec.Type"`
 
 	// LoadBalancerClass
 	//+optional
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	LoadBalancerClass string `json:"loadBalancerClass,omitempty"`
+	ServiceLoadBalancerClass string `json:"serviceLoadBalancerClass,omitempty" operator:"Service.Spec.LoadBalancerClass"`
 
 	// LoadBalancerSourceRanges
 	//+optional
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	LoadBalancerSourceRanges []string `json:"loadBalancerSourceRanges,omitempty"`
-
-	// NodePorts
-	//+optional
-	//+kubebuilder:default={}
-	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	NodePorts NodePortsSpec `json:"nodePorts"`
-}
-
-type NodePortsSpec struct {
+	ServiceLoadBalancerSourceRanges []string `json:"serviceLoadBalancerSourceRanges,omitempty" operator:"Service.Spec.LoadBalancerSourceRanges"`
 
 	// Beacon
 	//+optional
@@ -201,7 +166,7 @@ type NodePortsSpec struct {
 	//+kubebuilder:validation:Minimum=1
 	//+kubebuilder:validation:Maximum=65535
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	Beacon int32 `json:"beacon,omitempty"`
+	ServiceNodePortBeacon int32 `json:"serviceNodePortBeacon,omitempty" operator:"Service.Spec.Ports[beacon].NodePort"`
 
 	// Game
 	//+optional
@@ -209,7 +174,7 @@ type NodePortsSpec struct {
 	//+kubebuilder:validation:Minimum=1
 	//+kubebuilder:validation:Maximum=65535
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	Game int32 `json:"game,omitempty"`
+	ServiceNodePortGame int32 `json:"serviceNodePortGame,omitempty" operator:"Service.Spec.Ports[game].NodePort"`
 
 	// Query
 	//+optional
@@ -217,7 +182,7 @@ type NodePortsSpec struct {
 	//+kubebuilder:validation:Minimum=1
 	//+kubebuilder:validation:Maximum=65535
 	//+operator--sdk:csv:customresourcedefinitions:type=spec
-	Query int32 `json:"query,omitempty"`
+	ServiceNodePortQuery int32 `json:"serviceNodePortQuery,omitempty" operator:"Service.Spec.Ports[query].NodePort"`
 }
 
 // FactoryServerStatus defines the observed state of FactoryServer

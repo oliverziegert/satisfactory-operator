@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -28,10 +29,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/tools/record"
-	"os"
 	"reflect"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"strconv"
 	"strings"
 	"time"
@@ -49,21 +48,21 @@ import (
 const (
 	factoryServerFinalizer       = "satisfactory.pc-ziegert.de/finalizer"
 	factoryServerLastAppliedHash = "satisfactory.pc-ziegert.de/last-applied-hash"
-)
 
-// Definitions to manage status conditions
-const (
+	// Definitions to manage status conditions
 	// typeAvailableFactoryServer represents the status of the Deployment reconciliation
 	typeAvailableFactoryServer = "Available"
-	// typeDegradedFactoryServer represents the status used when the custom resource is deleted and the finalizer operations are must to occur.
+	// typeDegradedFactoryServer represents the status used when the custom resource is deleted and the finalizer operations are must occur.
 	typeDegradedFactoryServer = "Degraded"
 )
 
 // FactoryServerReconciler reconciles a FactoryServer object
 type FactoryServerReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Scheme     *runtime.Scheme
+	Recorder   record.EventRecorder
+	typeFields []field
+	log        *logr.Logger
 }
 
 // The following markers are used to generate the rules permissions (RBAC) on config/rbac using controller-gen
@@ -91,23 +90,25 @@ type FactoryServerReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.12.2/pkg/reconcile
 func (r *FactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
-	result := &ctrl.Result{}
-	err := error(nil)
+	r.log = &log
+	result := ctrl.Result{}
 
 	// Fetch the FactoryServer instance
-	// The purpose is check if the Custom Resource for the Kind FactoryServer
-	// is applied on the cluster if not we return nil to stop the reconciliation
+	// The purpose is to check if the Custom Resource for the Kind FactoryServer
+	// is applied on the cluster,1 if not we return nil to stop the reconciliation
 	factoryServer := &satisfactoryv1alpha1.FactoryServer{}
 	if err := r.Get(ctx, req.NamespacedName, factoryServer); err != nil {
 		if errors.IsNotFound(err) {
 			// If the custom resource is not stsFound then, it usually means that it was deleted or not created
 			// In this way, we will stop the reconciliation
-			log.Info("FactoryServer resource not deploy. Ignoring since object must be deleted")
-			return ctrl.Result{}, nil
+			r.log.Info("FactoryServer resource not deploy. Ignoring since object must be deleted")
+			result.Requeue = false
+			return result, nil
 		}
 		// Error reading the object - requeue the request.
-		log.Error(err, "Failed to get FactoryServer")
-		return ctrl.Result{}, err
+		r.log.Error(err, "Failed to get FactoryServer")
+		result.Requeue = false
+		return result, err
 	}
 
 	// Let's just set the status as Unknown when no status are available
@@ -120,7 +121,8 @@ func (r *FactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			"Reconciling",
 			"Starting reconciliation",
 		); err != nil {
-			return ctrl.Result{}, err
+			result.Requeue = false
+			return result, err
 		}
 
 		// Let's re-fetch the factoryServer Custom Resource after update the status
@@ -129,96 +131,39 @@ func (r *FactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		// your changes to the latest version and try again" which would re-trigger the reconciliation
 		// if we try to update it again in the following operations
 		if err := r.Get(ctx, req.NamespacedName, factoryServer); err != nil {
-			log.Error(err, "Failed to re-fetch factoryServer")
-			return ctrl.Result{}, err
+			r.log.Error(err, "Failed to re-fetch factoryServer")
+			result.Requeue = false
+			return result, err
 		}
 	}
 
-	// Let`s add a finalizer. Then, we can define some operations which schould
-	// occurs before the custom resource to be deleted.
-	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers
-	if !controllerutil.ContainsFinalizer(factoryServer, factoryServerFinalizer) {
-		log.Info("Adding finalizer for FactoryServer")
-		if ok := controllerutil.AddFinalizer(factoryServer, factoryServerFinalizer); !ok {
-			log.Error(err, "Failed to add finalizer into the custom resource")
-			return ctrl.Result{Requeue: true}, err
-		}
-
-		if err := r.Update(ctx, factoryServer); err != nil {
-			log.Error(err, "Failed to update custom resource to add finalizer")
-			return ctrl.Result{}, err
-		}
-	}
-
-	// Check if the FactoryServer instance is marked to be deleted, which is
-	// indicated by the deletion timestamp being set
-	isFactoryServerMarkedToBeDeleted := factoryServer.GetDeletionTimestamp() != nil
-	if isFactoryServerMarkedToBeDeleted {
-		if controllerutil.ContainsFinalizer(factoryServer, factoryServerFinalizer) {
-			log.Info("Performing Finalizer Operations for FactoryServer before delete CR")
-
-			// Let's add here a status "Downgrade" to define that this resource begin its process to be terminated.
-			if err := r.setStatusCondition(
-				ctx,
-				factoryServer,
-				typeDegradedFactoryServer,
-				metav1.ConditionUnknown,
-				"Finalizing",
-				fmt.Sprintf("Performing finalizer operations for the custom resource: %s ", factoryServer.Name),
-			); err != nil {
-				return ctrl.Result{}, err
-			}
-			// Perform all operations required before remove the finalizer and allow
-			// the Kubernetes API to remove the custom custom resource.
-			r.doFinalizerOperationsForFactoryServer(factoryServer)
-
-			// TODO(user): If you add operations to the doFinalizerOperationsForMemcached method
-			// then you need to ensure that all worked fine before deleting and updating the Downgrade status
-			// otherwise, you should requeue here.
-
-			// Re-fetch the memcached Custom Resource before update the status
-			// so that we have the latest state of the resource on the cluster and we will avoid
-			// raise the issue "the object has been modified, please apply
-			// your changes to the latest version and try again" which would re-trigger the reconciliation
-			if err := r.Get(ctx, req.NamespacedName, factoryServer); err != nil {
-				log.Error(err, "Failed to re-fetch FactoryServer")
-				return ctrl.Result{}, err
-			}
-
-			if err := r.setStatusCondition(
-				ctx,
-				factoryServer,
-				typeDegradedFactoryServer,
-				metav1.ConditionTrue,
-				"Finalizing",
-				fmt.Sprintf("Finalizer operations for custom resource %s name were successfully accomplished", factoryServer.Name),
-			); err != nil {
-				return ctrl.Result{}, err
-			}
-
-			log.Info("Removing Finalizer for FactoryServer after successfully perform the operations")
-			if ok := controllerutil.RemoveFinalizer(factoryServer, factoryServerFinalizer); !ok {
-				log.Error(err, "Failed to remove finalizer for FactoryServer")
-				return ctrl.Result{Requeue: true}, nil
-			}
-
-			if err := r.Update(ctx, factoryServer); err != nil {
-				log.Error(err, "Failed to remove finalizer for FactoryServer")
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
-	}
-
-	if result, err = r.ensureConfigMap(ctx, req, factoryServer, r.configMapForFactoryServer(factoryServer)); result != nil {
+	// check finalizer
+	if result, err := r.addFinalizer(ctx, factoryServer); result != nil {
 		return *result, err
 	}
 
-	if result, err = r.ensureStatefulSet(ctx, req, factoryServer, r.statefulsetForFactoryServer(factoryServer)); result != nil {
+	// check if crd is marked as deleted
+	if result, err := r.isDeleted(ctx, req, factoryServer); result != nil {
 		return *result, err
 	}
 
-	if result, err = r.ensureService(ctx, req, factoryServer, r.serviceForFactoryServer(factoryServer)); result != nil {
+	// check ConfigMap
+	if result, err := r.ensureConfigMapExists(ctx, factoryServer, r.getConfigMap(factoryServer)); result != nil {
+		return *result, err
+	}
+
+	// check StatefulSet
+	if result, err := r.ensureStatefulSetExists(ctx, factoryServer, r.getStatefulSet(factoryServer)); result != nil {
+		return *result, err
+	}
+
+	// check Service
+	if result, err := r.ensureServiceExists(ctx, factoryServer, r.getService(factoryServer)); result != nil {
+		return *result, err
+	}
+
+	// check Spec
+	if result, err := r.ensureSpec(ctx, factoryServer); result != nil {
 		return *result, err
 	}
 
@@ -227,11 +172,12 @@ func (r *FactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	podList := &corev1.PodList{}
 	listOpts := []client.ListOption{
 		client.InNamespace(factoryServer.Namespace),
-		client.MatchingLabels(labelsForFactoryServer(factoryServer)),
+		client.MatchingLabels(getLabels(factoryServer)),
 	}
-	if err = r.List(ctx, podList, listOpts...); err != nil {
+	if err := r.List(ctx, podList, listOpts...); err != nil {
 		log.Error(err, "Failed to list pods", "FactoryServer.Namespace", factoryServer.Namespace, "FactoryServer.Name", factoryServer.Name)
-		return ctrl.Result{}, err
+		result.Requeue = false
+		return result, err
 	}
 	podNames := getPodNames(podList.Items)
 
@@ -241,11 +187,107 @@ func (r *FactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		err := r.Status().Update(ctx, factoryServer)
 		if err != nil {
 			log.Error(err, "Failed to update FactoryServer status")
-			return ctrl.Result{}, err
+			result.Requeue = false
+			return result, err
 		}
 	}
+	return result, nil
+}
 
-	return ctrl.Result{}, nil
+func (r *FactoryServerReconciler) addFinalizer(ctx context.Context, f *satisfactoryv1alpha1.FactoryServer) (*ctrl.Result, error) {
+	result := &ctrl.Result{}
+	// Let`s add a finalizer. Then, we can define some operations which should
+	// occurs before the custom resource to be deleted.
+	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers
+	if !controllerutil.ContainsFinalizer(f, factoryServerFinalizer) {
+		r.log.Info("Adding finalizer for FactoryServer")
+		if ok := controllerutil.AddFinalizer(f, factoryServerFinalizer); !ok {
+			err := fmt.Errorf("failed to add finalizer into the custom resource")
+			r.log.Error(err, "Requeue current request in 3 seconds")
+			result.Requeue = true
+			result.RequeueAfter = time.Second * 3
+			return result, err
+		}
+
+		if err := r.Update(ctx, f); err != nil {
+			r.log.Error(err, "Failed to update custom resource to add finalizer")
+			result.Requeue = false
+			return result, err
+		}
+	}
+	return nil, nil
+}
+
+func (r *FactoryServerReconciler) isDeleted(ctx context.Context, req ctrl.Request, f *satisfactoryv1alpha1.FactoryServer) (*ctrl.Result, error) {
+	result := &ctrl.Result{}
+
+	// Check if the FactoryServer instance is marked to be deleted, which is
+	// indicated by the deletion timestamp being set
+	isFactoryServerMarkedToBeDeleted := f.GetDeletionTimestamp() != nil
+	if isFactoryServerMarkedToBeDeleted {
+		if controllerutil.ContainsFinalizer(f, factoryServerFinalizer) {
+			r.log.Info("Performing Finalizer Operations for FactoryServer before delete CR")
+
+			// Let's add here a status "Downgrade" to define that this resource begin its process to be terminated.
+			if err := r.setStatusCondition(
+				ctx,
+				f,
+				typeDegradedFactoryServer,
+				metav1.ConditionUnknown,
+				"Finalizing",
+				fmt.Sprintf("Performing finalizer operations for the custom resource: %s ", f.Name),
+			); err != nil {
+				result.Requeue = false
+				return result, err
+			}
+			// Perform all operations required before remove the finalizer and allow
+			// the Kubernetes API to remove the custom resource.
+			r.doFinalizerOperations(f)
+
+			// TODO(user): If you add operations to the doFinalizerOperations method
+			// then you need to ensure that all worked fine before deleting and updating the Downgrade status
+			// otherwise, you should requeue here.
+
+			// Re-fetch the memcached Custom Resource before update the status
+			// so that we have the latest state of the resource on the cluster and we will avoid
+			// raise the issue "the object has been modified, please apply
+			// your changes to the latest version and try again" which would re-trigger the reconciliation
+			if err := r.Get(ctx, req.NamespacedName, f); err != nil {
+				r.log.Error(err, "Failed to re-fetch FactoryServer")
+				result.Requeue = false
+				return result, err
+			}
+
+			if err := r.setStatusCondition(
+				ctx,
+				f,
+				typeDegradedFactoryServer,
+				metav1.ConditionTrue,
+				"Finalizing",
+				fmt.Sprintf("Finalizer operations for custom resource %s name were successfully accomplished", f.Name),
+			); err != nil {
+				result.Requeue = false
+				return result, err
+			}
+
+			r.log.Info("Removing Finalizer for FactoryServer after successfully perform the operations")
+			if ok := controllerutil.RemoveFinalizer(f, factoryServerFinalizer); !ok {
+				err := fmt.Errorf("failed to remove finalizer for FactoryServer")
+				r.log.Error(err, "Requeue current request in 3 seconds")
+				result.Requeue = true
+				result.RequeueAfter = time.Second * 3
+				return result, err
+			}
+
+			if err := r.Update(ctx, f); err != nil {
+				r.log.Error(err, "Failed to remove finalizer for FactoryServer")
+				result.Requeue = false
+				return result, err
+			}
+		}
+		return result, nil
+	}
+	return nil, nil
 }
 
 func (r *FactoryServerReconciler) setStatusCondition(ctx context.Context, f *satisfactoryv1alpha1.FactoryServer, t string, s metav1.ConditionStatus, re string, m string) error {
@@ -265,7 +307,7 @@ func (r *FactoryServerReconciler) setStatusCondition(ctx context.Context, f *sat
 	return nil
 }
 
-func (r *FactoryServerReconciler) doFinalizerOperationsForFactoryServer(cr *satisfactoryv1alpha1.FactoryServer) {
+func (r *FactoryServerReconciler) doFinalizerOperations(cr *satisfactoryv1alpha1.FactoryServer) {
 	// TODO(user): Add the cleanup steps that the operator
 	// needs to do before the CR can be deleted. Examples
 	// of finalizers include performing backups and deleting
@@ -284,24 +326,40 @@ func (r *FactoryServerReconciler) doFinalizerOperationsForFactoryServer(cr *sati
 			cr.Namespace))
 }
 
-// statefulsetForFactoryServer returns a factoryServer StatefulSet object
-func (r *FactoryServerReconciler) statefulsetForFactoryServer(f *satisfactoryv1alpha1.FactoryServer) *appsv1.StatefulSet {
+// ---------------------------------------------------- StatefulSet ----------------------------------------------------
+// getStatefulSetName returns StatefulSet name for this FactoryServer
+func getStatefulSetName(f *satisfactoryv1alpha1.FactoryServer) string {
+	return f.Name + "-server"
+}
+
+// getPersistentVolumeClaimName returns PersistentVolumeClaim name for this FactoryServer
+func getPersistentVolumeClaimName() string {
+	return getContainerName() + "-pvc"
+}
+
+// getPersistentVolumeClaimName returns PersistentVolumeClaim name for this FactoryServer
+func getContainerName() string {
+	return "factory-server"
+}
+
+// getStatefulSet returns a factoryServer StatefulSet object
+func (r *FactoryServerReconciler) getStatefulSet(f *satisfactoryv1alpha1.FactoryServer) *appsv1.StatefulSet {
 	replicas := f.Spec.Size
 
 	sts := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      factoryServerStatefulSetName(f),
+			Name:      getStatefulSetName(f),
 			Namespace: f.Namespace,
-			Labels:    labelsForFactoryServer(f),
+			Labels:    getLabels(f),
 		},
 		Spec: appsv1.StatefulSetSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: labelsForFactoryServer(f),
+				MatchLabels: getLabels(f),
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: labelsForFactoryServer(f),
+					Labels: getLabels(f),
 				},
 				Spec: corev1.PodSpec{
 					SecurityContext: &corev1.PodSecurityContext{
@@ -311,22 +369,22 @@ func (r *FactoryServerReconciler) statefulsetForFactoryServer(f *satisfactoryv1a
 						FSGroup:      &[]int64{0}[0],
 					},
 					Containers: []corev1.Container{{
-						Name:  factoryServerServiceName(f),
-						Image: imageForFactoryServer(f),
+						Name:  getContainerName(),
+						Image: f.Spec.Image,
 						Ports: []corev1.ContainerPort{
 							{
 								Name:          "query",
-								ContainerPort: f.Spec.Ports.Query,
+								ContainerPort: f.Spec.PortQuery,
 								Protocol:      "UDP",
 							},
 							{
 								Name:          "beacon",
-								ContainerPort: f.Spec.Ports.Beacon,
+								ContainerPort: f.Spec.PortBeacon,
 								Protocol:      "UDP",
 							},
 							{
 								Name:          "game",
-								ContainerPort: f.Spec.Ports.Game,
+								ContainerPort: f.Spec.PortGame,
 								Protocol:      "UDP",
 							},
 						},
@@ -334,7 +392,7 @@ func (r *FactoryServerReconciler) statefulsetForFactoryServer(f *satisfactoryv1a
 							{
 								ConfigMapRef: &corev1.ConfigMapEnvSource{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: factoryServerConfigMapName(f),
+										Name: getConfigMapName(f),
 									},
 									Optional: &[]bool{false}[0],
 								},
@@ -352,7 +410,7 @@ func (r *FactoryServerReconciler) statefulsetForFactoryServer(f *satisfactoryv1a
 						},
 						VolumeMounts: []corev1.VolumeMount{
 							{
-								Name:      factoryServerPersistentVolumeClaimName(f),
+								Name:      getPersistentVolumeClaimName(),
 								MountPath: "/config",
 							},
 						},
@@ -375,7 +433,7 @@ func (r *FactoryServerReconciler) statefulsetForFactoryServer(f *satisfactoryv1a
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      factoryServerPersistentVolumeClaimName(f),
+					Name:      getPersistentVolumeClaimName(),
 					Namespace: f.Namespace,
 				},
 				Spec: corev1.PersistentVolumeClaimSpec{
@@ -407,58 +465,108 @@ func (r *FactoryServerReconciler) statefulsetForFactoryServer(f *satisfactoryv1a
 	return sts
 }
 
-// serviceForFactoryServer returns a factoryServer Service object
-func (r *FactoryServerReconciler) serviceForFactoryServer(f *satisfactoryv1alpha1.FactoryServer) *corev1.Service {
+// ensureConfigMapExists creates a StatefulSet if it does not exist
+func (r *FactoryServerReconciler) ensureStatefulSetExists(ctx context.Context, f *satisfactoryv1alpha1.FactoryServer, s *appsv1.StatefulSet) (*ctrl.Result, error) {
+
+	// Check if the StatefulSet already exists, if not create a new one
+	found := &appsv1.StatefulSet{}
+	err := r.Get(ctx, types.NamespacedName{Name: s.Name, Namespace: s.Namespace}, found)
+	if err != nil && errors.IsNotFound(err) {
+		// Define a new StatefulSet
+		r.log.Info("Creating a new StatefulSet", "StatefulSet.Namespace", s.Namespace, "StatefulSet.Name", s.Name)
+		if err = r.Create(ctx, s); err != nil {
+			r.log.Error(err, "Failed to create new StatefulSet", "StatefulSet.Namespace", s.Namespace, "StatefulSet.Name", s.Name)
+			if err := r.setStatusCondition(
+				ctx,
+				f,
+				typeAvailableFactoryServer,
+				metav1.ConditionFalse,
+				"Reconciling",
+				fmt.Sprintf("Failed to create StatefulSet for the custom resource (%s): (%s)", f.Name, err),
+			); err != nil {
+				return &ctrl.Result{}, err
+			}
+			return &ctrl.Result{}, err
+		}
+		// We will requeue the reconciliation so that we can ensure the state
+		// and move forward for the next operations
+		if err := r.setStatusCondition(
+			ctx,
+			f,
+			typeAvailableFactoryServer,
+			metav1.ConditionTrue,
+			"Reconciling",
+			fmt.Sprintf("StatefulSet for custom resource (%s) created successfully", f.Name),
+		); err != nil {
+			return &ctrl.Result{}, err
+		}
+		return &ctrl.Result{Requeue: true, RequeueAfter: time.Second * 30}, nil
+	} else if err != nil {
+		// Error that isn't due to the StatefulSet not existing
+		r.log.Error(err, "Failed to get StatefulSet")
+		return &ctrl.Result{}, err
+	}
+	return nil, nil
+}
+
+// ------------------------------------------------------ Service ------------------------------------------------------
+// getServiceName returns Service name for this FactoryServer
+func getServiceName(f *satisfactoryv1alpha1.FactoryServer) string {
+	return f.Name + "-svc"
+}
+
+// getService returns a factoryServer Service object
+func (r *FactoryServerReconciler) getService(f *satisfactoryv1alpha1.FactoryServer) *corev1.Service {
 
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      factoryServerServiceName(f),
+			Name:      getServiceName(f),
 			Namespace: f.Namespace,
-			Labels:    labelsForFactoryServer(f),
+			Labels:    getLabels(f),
 		},
 		Spec: corev1.ServiceSpec{
 			Ports: []corev1.ServicePort{
 				{
 					Name:       "query",
 					Protocol:   "UDP",
-					Port:       f.Spec.Ports.Query,
+					Port:       f.Spec.PortQuery,
 					TargetPort: intstr.IntOrString{Type: intstr.String, StrVal: "query"},
 				},
 				{
 					Name:       "beacon",
 					Protocol:   "UDP",
-					Port:       f.Spec.Ports.Beacon,
+					Port:       f.Spec.PortBeacon,
 					TargetPort: intstr.IntOrString{Type: intstr.String, StrVal: "beacon"},
 				},
 				{
 					Name:       "game",
 					Protocol:   "UDP",
-					Port:       f.Spec.Ports.Game,
+					Port:       f.Spec.PortGame,
 					TargetPort: intstr.IntOrString{Type: intstr.String, StrVal: "game"},
 				},
 			},
-			Selector: labelsForFactoryServer(f),
-			Type:     f.Spec.Service.Type,
+			Selector: getLabels(f),
+			Type:     f.Spec.ServiceType,
 		},
 	}
 
-	switch f.Spec.Service.Type {
+	switch f.Spec.ServiceType {
 	case corev1.ServiceTypeLoadBalancer:
-		if f.Spec.Service.LoadBalancerClass != "" {
-			svc.Spec.LoadBalancerClass = &f.Spec.Service.LoadBalancerClass
+		if f.Spec.ServiceLoadBalancerClass != "" {
+			svc.Spec.LoadBalancerClass = &f.Spec.ServiceLoadBalancerClass
 		}
-		if len(f.Spec.Service.LoadBalancerSourceRanges) > 0 {
-			svc.Spec.LoadBalancerSourceRanges = f.Spec.Service.LoadBalancerSourceRanges
+		if len(f.Spec.ServiceLoadBalancerSourceRanges) > 0 {
+			svc.Spec.LoadBalancerSourceRanges = f.Spec.ServiceLoadBalancerSourceRanges
 		}
 	case corev1.ServiceTypeNodePort:
 		for _, port := range svc.Spec.Ports {
 			switch port.Name {
 			case "query":
-				port.NodePort = f.Spec.Service.NodePorts.Query
+				port.NodePort = f.Spec.ServiceNodePortQuery
 			case "beacon":
-				port.NodePort = f.Spec.Service.NodePorts.Beacon
+				port.NodePort = f.Spec.ServiceNodePortBeacon
 			case "game":
-				port.NodePort = f.Spec.Service.NodePorts.Game
+				port.NodePort = f.Spec.ServiceNodePortGame
 			}
 		}
 	}
@@ -470,183 +578,17 @@ func (r *FactoryServerReconciler) serviceForFactoryServer(f *satisfactoryv1alpha
 	return svc
 }
 
-// serviceForFactoryServer returns a factoryServer Service object
-func (r *FactoryServerReconciler) configMapForFactoryServer(f *satisfactoryv1alpha1.FactoryServer) *corev1.ConfigMap {
-	data := make(map[string]string)
-	data["AUTOPAUSE"] = strconv.FormatBool(f.Spec.Autopause)
-	data["AUTOSAVEINTERVAL"] = strconv.FormatUint(f.Spec.Autosave.Interval, 10)
-	data["AUTOSAVENUM"] = strconv.FormatUint(f.Spec.Autosave.Num, 10)
-	data["AUTOSAVEONDISCONNECT"] = strconv.FormatBool(f.Spec.Autosave.OnDisconnect)
-	data["CRASHREPORT"] = strconv.FormatBool(f.Spec.CrashReport)
-	data["DEBUG"] = strconv.FormatBool(f.Spec.Debug)
-	data["DISABLESEASONALEVENTS"] = strconv.FormatBool(f.Spec.DisableSeasonalEvents)
-	data["MAXPLAYERS"] = strconv.FormatUint(f.Spec.Maxplayers, 10)
-	data["NETWORKQUALITY"] = strconv.FormatUint(f.Spec.Networkquality, 10)
-	data["SERVERBEACONPORT"] = strconv.FormatInt(int64(f.Spec.Ports.Beacon), 10)
-	data["SERVERGAMEPORT"] = strconv.FormatInt(int64(f.Spec.Ports.Game), 10)
-	data["SERVERQUERYPORT"] = strconv.FormatInt(int64(f.Spec.Ports.Query), 10)
-	data["SKIPUPDATE"] = strconv.FormatBool(f.Spec.SkipUpdate)
-	data["STEAMBETA"] = strconv.FormatBool(f.Spec.Beta)
+// ensureConfigMapExists creates a Service if it does not exist
+func (r *FactoryServerReconciler) ensureServiceExists(ctx context.Context, f *satisfactoryv1alpha1.FactoryServer, s *corev1.Service) (*ctrl.Result, error) {
 
-	cm := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      factoryServerConfigMapName(f),
-			Namespace: f.Namespace,
-			Labels:    labelsForFactoryServer(f),
-		},
-		Data: data,
-	}
-
-	cm.ObjectMeta.Labels[factoryServerLastAppliedHash] = asSha256(cm)
-
-	// Set FactoryServer instance as the owner and controller
-	ctrl.SetControllerReference(f, cm, r.Scheme)
-	return cm
-}
-
-// labelsForFactoryServer returns the labels for selecting the resources
-// belonging to the given factoryServer CR name.
-func labelsForFactoryServer(f *satisfactoryv1alpha1.FactoryServer) map[string]string {
-	var imageTag string
-	image := imageForFactoryServer(f)
-	imageTag = strings.Split(image, ":")[1]
-
-	return map[string]string{"app.kubernetes.io/name": "FactoryServer",
-		"app.kubernetes.io/instance":   f.Name,
-		"app.kubernetes.io/version":    imageTag,
-		"app.kubernetes.io/part-of":    "factoryServer-operator",
-		"app.kubernetes.io/created-by": "controller-manager",
-	}
-}
-
-// imageForFactoryServer gets the Operand image which is managed by this controller
-// from the FACTORYSERVER_IMAGE environment variable defined in the config/manager/manager.yaml
-func imageForFactoryServer(f *satisfactoryv1alpha1.FactoryServer) string {
-	var imageEnvVar = "FACTORYSERVER_IMAGE"
-	image, found := os.LookupEnv(imageEnvVar)
-	if found {
-		return image
-	}
-	return f.Spec.Image
-}
-
-// getPodNames returns the pod names of the array of pods passed in
-func getPodNames(pods []corev1.Pod) []string {
-	var podNames []string
-	for _, pod := range pods {
-		podNames = append(podNames, pod.Name)
-	}
-	return podNames
-}
-
-func factoryServerStatefulSetName(f *satisfactoryv1alpha1.FactoryServer) string {
-	return f.Name + "-server"
-}
-
-func factoryServerPersistentVolumeClaimName(f *satisfactoryv1alpha1.FactoryServer) string {
-	return f.Name + "-pvc"
-}
-
-func factoryServerServiceName(f *satisfactoryv1alpha1.FactoryServer) string {
-	return f.Name + "-svc"
-}
-
-func factoryServerConfigMapName(f *satisfactoryv1alpha1.FactoryServer) string {
-	return f.Name + "-cm"
-}
-
-func (r *FactoryServerReconciler) ensureConfigMap(ctx context.Context, req reconcile.Request, f *satisfactoryv1alpha1.FactoryServer, c *corev1.ConfigMap) (*ctrl.Result, error) {
-	log := log.FromContext(ctx)
-	needsUpdate := false
-	found := &corev1.ConfigMap{}
-	err := r.Client.Get(ctx, types.NamespacedName{Name: c.Name, Namespace: c.Namespace}, found)
-	if err != nil && errors.IsNotFound(err) {
-		// Define a new Service
-		log.Info("Creating a new ConfigMap", "ConfigMap.Namespace", c.Namespace, "ConfigMap.Name", c.Name)
-		if err = r.Client.Create(ctx, c); err != nil {
-			// Creation failed
-			log.Error(err, "Failed to create new ConfigMap", "ConfigMap.Namespace", c.Namespace, "ConfigMap.Name", c.Name)
-
-			if err := r.setStatusCondition(
-				ctx,
-				f,
-				typeAvailableFactoryServer,
-				metav1.ConditionFalse,
-				"Reconciling",
-				fmt.Sprintf("Failed to create ConfigMap for the custom resource (%s): (%s)", f.Name, err),
-			); err != nil {
-				return &ctrl.Result{}, err
-			}
-			return &ctrl.Result{}, err
-		}
-
-		if err := r.setStatusCondition(
-			ctx,
-			f,
-			typeAvailableFactoryServer,
-			metav1.ConditionTrue,
-			"Reconciling",
-			fmt.Sprintf("ConfigMap for custom resource (%s) created successfully", f.Name),
-		); err != nil {
-			return &ctrl.Result{}, err
-		}
-		return &ctrl.Result{}, nil
-	} else if err != nil {
-		// Error that isn't due to the configMap not existing
-		log.Error(err, "Failed to get ConfigMap")
-		return &ctrl.Result{}, err
-	}
-
-	if c.Labels[factoryServerLastAppliedHash] != getLastAppliedHash(found.Labels) {
-		needsUpdate = true
-		found.ObjectMeta.Labels = c.ObjectMeta.Labels
-		found.Data = c.Data
-	}
-
-	if needsUpdate {
-		if err = r.Update(ctx, found); err != nil {
-			log.Error(err, "Failed to update ConfigMap", "ConfigMap.Namespace", found.Namespace, "ConfigMap.Name", found.Name)
-			if err := r.setStatusCondition(
-				ctx,
-				f,
-				typeAvailableFactoryServer,
-				metav1.ConditionFalse,
-				"Reconciling",
-				fmt.Sprintf("Failed to update ConfigMap for the custom resource (%s): (%s)", f.Name, err),
-			); err != nil {
-				return &ctrl.Result{}, err
-			}
-			return &ctrl.Result{}, err
-		}
-
-		log.Info("Updating ConfigMap", "ConfigMap.Namespace", c.Namespace, "ConfigMap.Name", c.Name)
-		if err := r.setStatusCondition(
-			ctx,
-			f,
-			typeAvailableFactoryServer,
-			metav1.ConditionTrue,
-			"Reconciling",
-			fmt.Sprintf("ConfigMap for custom resource (%s) updated successfully", f.Name),
-		); err != nil {
-			return &ctrl.Result{}, err
-		}
-		return &ctrl.Result{}, err
-	}
-	return nil, nil
-}
-
-func (r *FactoryServerReconciler) ensureService(ctx context.Context, req reconcile.Request, f *satisfactoryv1alpha1.FactoryServer, s *corev1.Service) (*ctrl.Result, error) {
-	log := log.FromContext(ctx)
-	needsUpdate := false
-
-	// Check if the service already exists, if not create a new one
+	// Check if the Service already exists, if not create a new one
 	found := &corev1.Service{}
 	err := r.Get(ctx, types.NamespacedName{Name: s.Name, Namespace: s.Namespace}, found)
 	if err != nil && errors.IsNotFound(err) {
 		// Define a new Service
-		log.Info("Creating a new Service", "Service.Namespace", s.Namespace, "Service.Name", s.Name)
+		r.log.Info("Creating a new Service", "Service.Namespace", s.Namespace, "Service.Name", s.Name)
 		if err = r.Create(ctx, s); err != nil {
-			log.Error(err, "Failed to create new Service", "Service.Namespace", s.Namespace, "Service.Name", s.Name)
+			r.log.Error(err, "Failed to create new Service", "Service.Namespace", s.Namespace, "Service.Name", s.Name)
 			if err := r.setStatusCondition(
 				ctx,
 				f,
@@ -674,133 +616,120 @@ func (r *FactoryServerReconciler) ensureService(ctx context.Context, req reconci
 		return &ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
 	} else if err != nil {
 		// Error that isn't due to the service not existing
-		log.Error(err, "Failed to get Service")
-		return &ctrl.Result{}, err
-	}
-
-	if s.Labels[factoryServerLastAppliedHash] != getLastAppliedHash(found.Labels) {
-		needsUpdate = true
-		found.Labels = s.Labels
-		found.Spec.Selector = s.Spec.Selector
-		found.Spec.Type = s.Spec.Type
-		found.Spec.Ports = s.Spec.Ports
-	}
-
-	if needsUpdate {
-		if err = r.Update(ctx, found); err != nil {
-			log.Error(err, "Failed to update Service", "Service.Namespace", found.Namespace, "Service.Name", found.Name)
-			if err := r.setStatusCondition(
-				ctx,
-				f,
-				typeAvailableFactoryServer,
-				metav1.ConditionFalse,
-				"Reconciling",
-				fmt.Sprintf("Failed to update Service for the custom resource (%s): (%s)", f.Name, err),
-			); err != nil {
-				return &ctrl.Result{}, err
-			}
-			return &ctrl.Result{}, err
-		}
-
-		log.Info("Updating Service", "Service.Namespace", found.Namespace, "Service.Name", found.Name)
-		if err := r.setStatusCondition(
-			ctx,
-			f,
-			typeAvailableFactoryServer,
-			metav1.ConditionTrue,
-			"Reconciling",
-			fmt.Sprintf("Service for custom resource (%s) updated successfully", f.Name),
-		); err != nil {
-			return &ctrl.Result{}, err
-		}
+		r.log.Error(err, "Failed to get Service")
 		return &ctrl.Result{}, err
 	}
 	return nil, nil
 }
 
-func (r *FactoryServerReconciler) ensureStatefulSet(ctx context.Context, req reconcile.Request, f *satisfactoryv1alpha1.FactoryServer, s *appsv1.StatefulSet) (*ctrl.Result, error) {
-	log := log.FromContext(ctx)
-	needsUpdate := false
+// ----------------------------------------------------- ConfigMap -----------------------------------------------------
+// getConfigMapName returns ConfigMap name for this FactoryServer
+func getConfigMapName(f *satisfactoryv1alpha1.FactoryServer) string {
+	return f.Name + "-cm"
+}
 
-	// Check if the StatefulSet already exists, if not create a new one
-	found := &appsv1.StatefulSet{}
-	err := r.Get(ctx, types.NamespacedName{Name: s.Name, Namespace: s.Namespace}, found)
+// getConfigMap returns a factoryServer ConfigMap object
+func (r *FactoryServerReconciler) getConfigMap(f *satisfactoryv1alpha1.FactoryServer) *corev1.ConfigMap {
+	data := make(map[string]string)
+	data["AUTOPAUSE"] = strconv.FormatBool(f.Spec.Autopause)
+	data["AUTOSAVEINTERVAL"] = strconv.FormatUint(f.Spec.AutosaveInterval, 10)
+	data["AUTOSAVENUM"] = strconv.FormatUint(f.Spec.AutosaveNum, 10)
+	data["AUTOSAVEONDISCONNECT"] = strconv.FormatBool(f.Spec.AutosaveOnDisconnect)
+	data["CRASHREPORT"] = strconv.FormatBool(f.Spec.CrashReport)
+	data["DEBUG"] = strconv.FormatBool(f.Spec.Debug)
+	data["DISABLESEASONALEVENTS"] = strconv.FormatBool(f.Spec.DisableSeasonalEvents)
+	data["MAXPLAYERS"] = strconv.FormatUint(f.Spec.Maxplayers, 10)
+	data["NETWORKQUALITY"] = strconv.FormatUint(f.Spec.Networkquality, 10)
+	data["SERVERBEACONPORT"] = strconv.FormatInt(int64(f.Spec.PortBeacon), 10)
+	data["SERVERGAMEPORT"] = strconv.FormatInt(int64(f.Spec.PortGame), 10)
+	data["SERVERQUERYPORT"] = strconv.FormatInt(int64(f.Spec.PortQuery), 10)
+	data["SKIPUPDATE"] = strconv.FormatBool(f.Spec.SkipUpdate)
+	data["STEAMBETA"] = strconv.FormatBool(f.Spec.Beta)
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      getConfigMapName(f),
+			Namespace: f.Namespace,
+			Labels:    getLabels(f),
+		},
+		Data: data,
+	}
+
+	cm.ObjectMeta.Labels[factoryServerLastAppliedHash] = asSha256(cm)
+
+	// Set FactoryServer instance as the owner and controller
+	ctrl.SetControllerReference(f, cm, r.Scheme)
+	return cm
+}
+
+// ensureConfigMapExists creates a ConfigMap if it does not exist
+func (r *FactoryServerReconciler) ensureConfigMapExists(ctx context.Context, f *satisfactoryv1alpha1.FactoryServer, c *corev1.ConfigMap) (*ctrl.Result, error) {
+
+	// Check if the ConfigMap already exists, if not create a new one
+	found := &corev1.ConfigMap{}
+	err := r.Client.Get(ctx, types.NamespacedName{Name: c.Name, Namespace: c.Namespace}, found)
 	if err != nil && errors.IsNotFound(err) {
-		// Define a new StatefulSet
-		log.Info("Creating a new StatefulSet", "StatefulSet.Namespace", s.Namespace, "StatefulSet.Name", s.Name)
-		if err = r.Create(ctx, s); err != nil {
-			log.Error(err, "Failed to create new StatefulSet", "StatefulSet.Namespace", s.Namespace, "StatefulSet.Name", s.Name)
+		// Define a new Service
+		r.log.Info("Creating a new ConfigMap", "ConfigMap.Namespace", c.Namespace, "ConfigMap.Name", c.Name)
+		if err = r.Client.Create(ctx, c); err != nil {
+			// Creation failed
+			r.log.Error(err, "Failed to create new ConfigMap", "ConfigMap.Namespace", c.Namespace, "ConfigMap.Name", c.Name)
+
 			if err := r.setStatusCondition(
 				ctx,
 				f,
 				typeAvailableFactoryServer,
 				metav1.ConditionFalse,
 				"Reconciling",
-				fmt.Sprintf("Failed to create StatefulSet for the custom resource (%s): (%s)", f.Name, err),
+				fmt.Sprintf("Failed to create ConfigMap for the custom resource (%s): (%s)", f.Name, err),
 			); err != nil {
 				return &ctrl.Result{}, err
 			}
 			return &ctrl.Result{}, err
 		}
-		// We will requeue the reconciliation so that we can ensure the state
-		// and move forward for the next operations
+
 		if err := r.setStatusCondition(
 			ctx,
 			f,
 			typeAvailableFactoryServer,
 			metav1.ConditionTrue,
 			"Reconciling",
-			fmt.Sprintf("StatefulSet for custom resource (%s) created successfully", f.Name),
+			fmt.Sprintf("ConfigMap for custom resource (%s) created successfully", f.Name),
 		); err != nil {
 			return &ctrl.Result{}, err
 		}
-		return &ctrl.Result{Requeue: true, RequeueAfter: time.Second * 30}, nil
+		return &ctrl.Result{}, nil
 	} else if err != nil {
-		// Error that isn't due to the service not existing
-		log.Error(err, "Failed to get StatefulSet")
-		return &ctrl.Result{}, err
-	}
-
-	if s.Labels[factoryServerLastAppliedHash] != getLastAppliedHash(found.Labels) {
-		needsUpdate = true
-		found.Labels = s.Labels
-		found.Spec.Replicas = s.Spec.Replicas
-		found.Spec.Template.Spec = s.Spec.Template.Spec
-		found.Spec.UpdateStrategy = s.Spec.UpdateStrategy
-		found.Spec.PersistentVolumeClaimRetentionPolicy = s.Spec.PersistentVolumeClaimRetentionPolicy
-		found.Spec.MinReadySeconds = s.Spec.MinReadySeconds
-	}
-
-	if needsUpdate {
-		if err = r.Update(ctx, found); err != nil {
-			log.Error(err, "Failed to update StatefulSet", "StatefulSet.Namespace", found.Namespace, "StatefulSet.Name", found.Name)
-			if err := r.setStatusCondition(
-				ctx,
-				f,
-				typeAvailableFactoryServer,
-				metav1.ConditionFalse,
-				"Reconciling",
-				fmt.Sprintf("Failed to update StatefulSet for the custom resource (%s): (%s)", f.Name, err),
-			); err != nil {
-				return &ctrl.Result{}, err
-			}
-			return &ctrl.Result{}, err
-		}
-
-		log.Info("Updating StatefulSet", "StatefulSet.Namespace", found.Namespace, "StatefulSet.Name", found.Name)
-		if err := r.setStatusCondition(
-			ctx,
-			f,
-			typeAvailableFactoryServer,
-			metav1.ConditionTrue,
-			"Reconciling",
-			fmt.Sprintf("StatefulSet for custom resource (%s) updated successfully", f.Name),
-		); err != nil {
-			return &ctrl.Result{}, err
-		}
+		// Error that isn't due to the configMap not existing
+		r.log.Error(err, "Failed to get ConfigMap")
 		return &ctrl.Result{}, err
 	}
 	return nil, nil
+}
+
+// ------------------------------------------------------- Helper ------------------------------------------------------
+// getLabels returns the labels for selecting the resources
+// belonging to the given factoryServer CR name.
+func getLabels(f *satisfactoryv1alpha1.FactoryServer) map[string]string {
+	var imageTag string
+	image := f.Spec.Image
+	imageTag = strings.Split(image, ":")[1]
+
+	return map[string]string{"app.kubernetes.io/name": "FactoryServer",
+		"app.kubernetes.io/instance":   f.Name,
+		"app.kubernetes.io/version":    imageTag,
+		"app.kubernetes.io/part-of":    "factoryServer-operator",
+		"app.kubernetes.io/created-by": "controller-manager",
+	}
+}
+
+// getPodNames returns the pod names of the array of pods passed in
+func getPodNames(pods []corev1.Pod) []string {
+	var podNames []string
+	for _, pod := range pods {
+		podNames = append(podNames, pod.Name)
+	}
+	return podNames
 }
 
 func asSha256(o interface{}) string {
@@ -810,15 +739,285 @@ func asSha256(o interface{}) string {
 	return fmt.Sprintf("%x", h.Sum(nil))[:63]
 }
 
-func getLastAppliedHash(labels map[string]string) string {
-	if val, ok := labels[factoryServerLastAppliedHash]; ok {
-		return val
+func (r *FactoryServerReconciler) ensureSpec(ctx context.Context, f *satisfactoryv1alpha1.FactoryServer) (*ctrl.Result, error) {
+	result := &ctrl.Result{}
+	// Source resources
+	sCm := r.getConfigMap(f)
+	sSts := r.getStatefulSet(f)
+	sSvc := r.getService(f)
+
+	// target resources
+	tCm := &corev1.ConfigMap{}
+	tSts := &appsv1.StatefulSet{}
+	tSvc := &corev1.Service{}
+	if err := r.Get(ctx, types.NamespacedName{Name: getConfigMapName(f), Namespace: f.Namespace}, tCm); err != nil {
+		return &ctrl.Result{}, err
 	}
-	return ""
+	if err := r.Get(ctx, types.NamespacedName{Name: getStatefulSetName(f), Namespace: f.Namespace}, tSts); err != nil {
+		return &ctrl.Result{}, err
+	}
+	if err := r.Get(ctx, types.NamespacedName{Name: getServiceName(f), Namespace: f.Namespace}, tSvc); err != nil {
+		return &ctrl.Result{}, err
+	}
+
+	uCm := false
+	uSts := false
+	uSvc := false
+
+	for _, field := range r.typeFields {
+		for _, resource := range field.Resources {
+			switch strings.ToLower(resource.Typ) {
+			case "deployment", "deploy":
+				continue
+			case "daemonSet", "ds":
+				continue
+			case "cronjob", "cj":
+				continue
+			case "ingress", "ing":
+				continue
+			case "statefulset", "sts":
+				if adjust(sSts, tSts, resource.Path) {
+					uSts = true
+				}
+			case "configmap", "cm":
+				if adjust(sCm, tCm, resource.Path) {
+					uCm = true
+				}
+			case "service", "svc":
+				if adjust(sSvc, tSvc, resource.Path) {
+					uSvc = true
+				}
+			case "persistentvolumeclaims", "pvc":
+				continue
+			case "serviceaccounts", "sa":
+				continue
+			default:
+				continue
+			}
+		}
+	}
+
+	if uCm {
+		res, err := r.updateResources(ctx, tCm)
+		if err != nil {
+			return res, err
+		}
+		if res.Requeue {
+			result.Requeue = res.Requeue
+			if res.RequeueAfter > result.RequeueAfter {
+				result.RequeueAfter = res.RequeueAfter
+			}
+		}
+	}
+
+	if uSts {
+		res, err := r.updateResources(ctx, tSts)
+		if err != nil {
+			return res, err
+		}
+		if res.Requeue {
+			result.Requeue = res.Requeue
+			if res.RequeueAfter > result.RequeueAfter {
+				result.RequeueAfter = res.RequeueAfter
+			}
+		}
+	}
+
+	if uSvc {
+		res, err := r.updateResources(ctx, tSvc)
+		if err != nil {
+			return res, err
+		}
+		if res.Requeue {
+			result.Requeue = res.Requeue
+			if res.RequeueAfter > result.RequeueAfter {
+				result.RequeueAfter = res.RequeueAfter
+			}
+		}
+	}
+
+	if uCm || uSts || uSvc {
+		return result, nil
+	}
+	return nil, nil
 }
+
+func adjust(source interface{}, target interface{}, fieldPath string) bool {
+
+	// if target is not pointer, then immediately return
+	// modifying struct's field requires addressable object
+	sAddrValue := reflect.ValueOf(source)
+	tAddrValue := reflect.ValueOf(target)
+	if sAddrValue.Kind() != reflect.Ptr || tAddrValue.Kind() != reflect.Ptr {
+		panic("Fuuu!!!")
+	}
+
+	sValue := sAddrValue.Elem()
+	tValue := tAddrValue.Elem()
+	if !sValue.IsValid() || !tValue.IsValid() {
+		panic("Fuuu!!!")
+	}
+
+	// If the field/struct is passed by pointer, then first dereference it to get the
+	// underlying value (the pointer must not be pointing to a nil value).
+	if sValue.Type().Kind() == reflect.Ptr && !sValue.IsNil() ||
+		tValue.Type().Kind() == reflect.Ptr && !tValue.IsNil() {
+		sValue = sValue.Elem()
+		tValue = tValue.Elem()
+		if !sValue.IsValid() || !tValue.IsValid() {
+			panic("Fuuu!!!")
+		}
+	}
+
+	// split filedPath into individual pieces
+	// walk through given path
+	for _, fieldName := range strings.Split(fieldPath, ".") {
+		if sValue.Type().Kind() == reflect.Ptr && !sValue.IsNil() ||
+			tValue.Type().Kind() == reflect.Ptr && !tValue.IsNil() {
+			sValue = sValue.Elem()
+			tValue = tValue.Elem()
+			if !sValue.IsValid() || !tValue.IsValid() {
+				panic("Fuuu!!!")
+			}
+		}
+
+		// if given field is an array
+		if strings.ContainsAny(fieldName, "[]") {
+			idx := strings.Index(fieldName, "[")
+			listElementName := fieldName[idx+1 : len(fieldName)-1]
+			fieldName = fieldName[:idx]
+			sValue = sValue.FieldByName(fieldName)
+			tValue = tValue.FieldByName(fieldName)
+
+			if strings.ContainsRune(listElementName, '=') {
+				idx = strings.Index(listElementName, "=")
+				keys := listElementName[:idx]
+				value := listElementName[idx+1:]
+				for i := 0; i < sValue.Len(); i++ {
+					sValueIndex := sValue.Index(i)
+					for _, key := range strings.Split(keys, ":") {
+						sValueIndex = sValueIndex.FieldByName(key)
+						if sValueIndex.Type().Kind() == reflect.Ptr && !sValueIndex.IsNil() {
+							sValueIndex = sValueIndex.Elem()
+						}
+					}
+					if sValueIndex.String() == value {
+						sValue = sValue.Index(i)
+						break
+					}
+				}
+				for i := 0; i < tValue.Len(); i++ {
+					tValueIndex := tValue.Index(i)
+					for _, key := range strings.Split(keys, ":") {
+						tValueIndex = tValueIndex.FieldByName(key)
+						if tValueIndex.Type().Kind() == reflect.Ptr && !tValueIndex.IsNil() {
+							tValueIndex = tValueIndex.Elem()
+						}
+					}
+					if tValueIndex.String() == value {
+						tValue = tValue.Index(i)
+						break
+					}
+				}
+				continue
+			}
+
+			//search for next element by name
+			for i := 0; i < tValue.Len(); i++ {
+				if tValue.Index(i).FieldByName("Name").String() == listElementName {
+					tValue = tValue.Index(i)
+					break
+				}
+			}
+			for i := 0; i < sValue.Len(); i++ {
+				if sValue.Index(i).FieldByName("Name").String() == listElementName {
+					sValue = sValue.Index(i)
+					break
+				}
+			}
+			continue
+		}
+
+		// if given field is a map
+		if strings.ContainsAny(fieldName, "{}") {
+			idx := strings.Index(fieldName, "{")
+			mapElementName := fieldName[idx+1 : len(fieldName)-1]
+			fieldName = fieldName[:idx]
+			sValue = sValue.FieldByName(fieldName)
+			tValue = tValue.FieldByName(fieldName)
+
+			//search for next element by name
+			for _, key := range sValue.MapKeys() {
+				keyPtr := key
+				if keyPtr.Type().Kind() == reflect.Ptr && !keyPtr.IsNil() {
+					keyPtr = keyPtr.Elem()
+				}
+				if keyPtr.String() == mapElementName {
+					sValue = sValue.MapIndex(key)
+					break
+				}
+			}
+			for _, key := range tValue.MapKeys() {
+				keyPtr := key
+				if keyPtr.Type().Kind() == reflect.Ptr && !keyPtr.IsNil() {
+					keyPtr = keyPtr.Elem()
+				}
+				if keyPtr.String() == mapElementName {
+					tValue = tValue.MapIndex(key)
+					break
+				}
+			}
+			continue
+		}
+
+		sValue = sValue.FieldByName(fieldName)
+		tValue = tValue.FieldByName(fieldName)
+	}
+
+	if sValue.Type().Kind() == reflect.Ptr && !sValue.IsNil() ||
+		tValue.Type().Kind() == reflect.Ptr && !tValue.IsNil() {
+		sValue = sValue.Elem()
+		tValue = tValue.Elem()
+		if !sValue.IsValid() || !tValue.IsValid() {
+			panic("Fuuu!!!")
+		}
+	}
+
+	if reflect.DeepEqual(sValue.Interface(), tValue.Interface()) {
+		return false
+	}
+	//check if tValue is a correct Value
+	if !tValue.IsValid() {
+		panic("Fuuu!!!")
+	}
+
+	// check if we can set this value
+	// ToDo: Fails if struct needs to be updated
+	// Spec.VolumeClaimTemplates.Spec.Resources.Requests{storage}
+	if !tValue.CanSet() {
+		return false
+	}
+
+	// set actual value
+	tValue.Set(sValue)
+	return true
+}
+
+func (r *FactoryServerReconciler) updateResources(ctx context.Context, obj client.Object) (*ctrl.Result, error) {
+	if err := r.Update(ctx, obj); err != nil {
+		r.log.Error(err, "Failed to update Deployment",
+			"Deployment.Namespace", obj.GetNamespace(), "Deployment.Name", obj.GetName())
+
+		return &ctrl.Result{}, err
+	}
+	return &ctrl.Result{Requeue: true}, nil
+}
+
+// ------------------------------------------------------ Startup ------------------------------------------------------
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *FactoryServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.typeFields = TypeFields(reflect.TypeOf(satisfactoryv1alpha1.FactoryServer{}))
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&satisfactoryv1alpha1.FactoryServer{}).
 		Owns(&appsv1.StatefulSet{}).
