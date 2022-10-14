@@ -777,14 +777,20 @@ func (r *FactoryServerReconciler) ensureSpec(ctx context.Context, f *satisfactor
 				continue
 			case "statefulset", "sts":
 				if adjust(sSts, tSts, resource.Path) {
+					r.log.Info(fmt.Sprintf("StatefulSet: %s does not match, will be updated", resource.Path))
 					uSts = true
 				}
 			case "configmap", "cm":
 				if adjust(sCm, tCm, resource.Path) {
+					r.log.Info(fmt.Sprintf("ConfigMap: %s does not match, will be updated", resource.Path))
 					uCm = true
 				}
 			case "service", "svc":
+				if strings.Contains(resource.Path, "NodePort") && f.Spec.ServiceType != corev1.ServiceTypeNodePort {
+					continue
+				}
 				if adjust(sSvc, tSvc, resource.Path) {
+					r.log.Info(fmt.Sprintf("Service: %s does not match, will be updated", resource.Path))
 					uSvc = true
 				}
 			case "persistentvolumeclaims", "pvc":
@@ -798,6 +804,7 @@ func (r *FactoryServerReconciler) ensureSpec(ctx context.Context, f *satisfactor
 	}
 
 	if uCm {
+		r.log.Info("ConfigMap needs an update")
 		res, err := r.updateResources(ctx, tCm)
 		if err != nil {
 			return res, err
@@ -808,9 +815,11 @@ func (r *FactoryServerReconciler) ensureSpec(ctx context.Context, f *satisfactor
 				result.RequeueAfter = res.RequeueAfter
 			}
 		}
+		r.log.Info("ConfigMap updated successfully")
 	}
 
 	if uSts {
+		r.log.Info("StatefulSet needs an update")
 		res, err := r.updateResources(ctx, tSts)
 		if err != nil {
 			return res, err
@@ -821,9 +830,11 @@ func (r *FactoryServerReconciler) ensureSpec(ctx context.Context, f *satisfactor
 				result.RequeueAfter = res.RequeueAfter
 			}
 		}
+		r.log.Info("StatefulSet updated successfully")
 	}
 
 	if uSvc {
+		r.log.Info("Service needs an update")
 		res, err := r.updateResources(ctx, tSvc)
 		if err != nil {
 			return res, err
@@ -834,6 +845,7 @@ func (r *FactoryServerReconciler) ensureSpec(ctx context.Context, f *satisfactor
 				result.RequeueAfter = res.RequeueAfter
 			}
 		}
+		r.log.Info("Service updated successfully")
 	}
 
 	if uCm || uSts || uSvc {
@@ -871,7 +883,8 @@ func adjust(source interface{}, target interface{}, fieldPath string) bool {
 
 	// split filedPath into individual pieces
 	// walk through given path
-	for _, fieldName := range strings.Split(fieldPath, ".") {
+	fieldPathElements := strings.Split(fieldPath, ".")
+	for indexFieldName, fieldName := range fieldPathElements {
 		if sValue.Type().Kind() == reflect.Ptr && !sValue.IsNil() ||
 			tValue.Type().Kind() == reflect.Ptr && !tValue.IsNil() {
 			sValue = sValue.Elem()
@@ -963,7 +976,16 @@ func adjust(source interface{}, target interface{}, fieldPath string) bool {
 					keyPtr = keyPtr.Elem()
 				}
 				if keyPtr.String() == mapElementName {
-					tValue = tValue.MapIndex(key)
+					tValueTemp := tValue.MapIndex(key)
+					// Last Element in path -> set value directly
+					if indexFieldName+1 == len(fieldPathElements) {
+						if reflect.DeepEqual(sValue.Interface(), tValueTemp.Interface()) {
+							return false
+						}
+						tValue.SetMapIndex(key, sValue)
+						return true
+					}
+					tValue = tValueTemp
 					break
 				}
 			}
