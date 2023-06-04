@@ -1,7 +1,7 @@
 # This workflow will build a golang project
 # For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
 
-name: Build Go binary and Docker Image
+name: Build Docker Image
 
 on:
   push:
@@ -14,7 +14,7 @@ env:
   
 jobs:
   build:
-    name: Build go binary and container image
+    name: Build container image
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -22,11 +22,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
-
-      - name: Set up Go
-        uses: actions/setup-go@v3
-        with:
-          go-version: 1.19
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
@@ -43,18 +38,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: fmt
-        run: go fmt $(go list ./... | grep -v /vendor/)
-
-      - name: vet
-        run: go vet $(go list ./... | grep -v /vendor/)
-
-      # - name: test
-      #   run: go test -race $(go list ./... | grep -v /vendor/)
-
-      - name: Build
-        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o ./manager ./main.go
-
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
@@ -63,6 +46,5 @@ jobs:
           tags: ${{ env.REGISTRY }}/${{ github.repository }}:${{ github.sha }}
           labels: ${{ github.event.repository.updated_at }}
           context: .
-          file: ./Dockerfile.linux-amd64
           cache-from: type=gha
           cache-to: type=gha,mode=maxx
