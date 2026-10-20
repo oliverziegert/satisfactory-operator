@@ -129,7 +129,3 @@ type SaveGameList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []SaveGame `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&SaveGame{}, &SaveGameList{})
-}
