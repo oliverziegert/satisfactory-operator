@@ -205,7 +205,7 @@ func main() {
 	if err := (&controller.SatisfactoryServerReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("satisfactoryserver-controller"),
+		Recorder: mgr.GetEventRecorder("satisfactoryserver-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SatisfactoryServer")
 		os.Exit(1)
@@ -220,7 +220,7 @@ func main() {
 	if err := (&controller.ClusterPolicyReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("clusterpolicy-controller"),
+		Recorder: mgr.GetEventRecorder("clusterpolicy-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterPolicy")
 		os.Exit(1)

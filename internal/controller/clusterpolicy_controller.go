@@ -25,7 +25,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -39,14 +39,14 @@ import (
 type ClusterPolicyReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=satisfactory.oliverziegert.github.com,resources=clusterpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=satisfactory.oliverziegert.github.com,resources=clusterpolicies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=satisfactory.oliverziegert.github.com,resources=clusterpolicies/finalizers,verbs=update
 // +kubebuilder:rbac:groups=satisfactory.oliverziegert.github.com,resources=satisfactoryservers,verbs=get;list;watch;patch
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconcile reconciles a ClusterPolicy resource against the actual cluster state.
 func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -117,7 +117,7 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			if !validateImageAllowlist(server, cp.Spec.AllowedImageVersions) {
 				msg := fmt.Sprintf("SatisfactoryServer %s/%s uses disallowed image %q", server.Namespace, server.Name, server.Spec.Image)
 				violations = append(violations, msg)
-				r.Recorder.Eventf(server, corev1.EventTypeWarning, "DisallowedImage",
+				r.Recorder.Eventf(server, cp, corev1.EventTypeWarning, "DisallowedImage", "Validate",
 					"Image %q is not in the ClusterPolicy allowedImageVersions list", server.Spec.Image)
 			}
 		}
@@ -135,7 +135,7 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				for i := range serverList.Items {
 					server := &serverList.Items[i]
 					if server.Namespace == ns {
-						r.Recorder.Eventf(server, corev1.EventTypeWarning, "NamespaceLimitExceeded",
+						r.Recorder.Eventf(server, cp, corev1.EventTypeWarning, "NamespaceLimitExceeded", "Validate",
 							"Namespace %q exceeds maxServersPerNamespace limit (%d/%d)", ns, count, limit)
 					}
 				}

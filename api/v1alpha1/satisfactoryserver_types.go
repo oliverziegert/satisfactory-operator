@@ -287,7 +287,3 @@ type SatisfactoryServerList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []SatisfactoryServer `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&SatisfactoryServer{}, &SatisfactoryServerList{})
-}

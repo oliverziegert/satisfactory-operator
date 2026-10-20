@@ -29,7 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -55,7 +55,7 @@ type probeResult struct {
 type SatisfactoryServerReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=satisfactory.oliverziegert.github.com,resources=satisfactoryservers,verbs=get;list;watch;create;update;patch;delete
@@ -67,6 +67,7 @@ type SatisfactoryServerReconciler struct {
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconcile reconciles a SatisfactoryServer resource against the actual cluster state.
 func (r *SatisfactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -157,7 +158,7 @@ func (r *SatisfactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.R
 				log.Error(claimErr, "auto-claiming failed")
 			} else {
 				// Claim succeeded: emit event and requeue so next probe picks up claimed state.
-				r.Recorder.Eventf(server, corev1.EventTypeNormal, "ServerClaimed",
+				r.Recorder.Eventf(server, nil, corev1.EventTypeNormal, "ServerClaimed", "Claim",
 					"Server %q successfully claimed", getServerName(server))
 				return ctrl.Result{RequeueAfter: time.Second}, nil
 			}
