@@ -17,7 +17,7 @@ The game server image defaults to the community image [`ghcr.io/robtme/satisfact
 
 ## Quick start
 
-Prerequisites: Go 1.24+, Docker, kubectl, and an **amd64** Kubernetes cluster with a default StorageClass. Plan for ~4–8 GiB memory and ~15 GiB storage per server.
+Prerequisites: Go 1.25+, Docker, kubectl, and an **amd64** Kubernetes cluster with a default StorageClass. Plan for ~4–8 GiB memory and ~15 GiB storage per server.
 
 ```sh
 # Build and push the operator image

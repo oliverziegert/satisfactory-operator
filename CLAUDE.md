@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Kubernetes operator for managing Satisfactory Dedicated Game Servers. Built with Kubebuilder (go.kubebuilder.io/v4) and Operator SDK, using controller-runtime v0.21.0 on Go 1.24.
+Kubernetes operator for managing Satisfactory Dedicated Game Servers. Built with Kubebuilder (go.kubebuilder.io/v4) and Operator SDK, using controller-runtime v0.21.0 on Go 1.25.
 
 API group: `satisfactory.oliverziegert.github.com`, version: `v1alpha1`
 
