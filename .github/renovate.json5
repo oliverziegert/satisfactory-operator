@@ -79,6 +79,13 @@
       automerge: false,
     },
     {
+      description: "Renovate leaves the go directive alone by default; bump keeps it in step with golang",
+      matchManagers: ["gomod"],
+      matchDepNames: ["go"],
+      matchDepTypes: ["golang"],
+      rangeStrategy: "bump",
+    },
+    {
       description: "Do not bump the go directive for Go patch releases",
       matchManagers: ["gomod"],
       matchDepNames: ["go"],
