@@ -248,7 +248,7 @@ ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -
 # renovate: datasource=go depName=github.com/golangci/golangci-lint/v2
 GOLANGCI_LINT_VERSION ?= v2.15.0
 # renovate: datasource=github-releases depName=operator-framework/operator-registry
-OPM_VERSION ?= v1.55.0
+OPM_VERSION ?= v1.74.0
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
