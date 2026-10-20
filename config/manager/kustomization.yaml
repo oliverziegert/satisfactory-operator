@@ -3,4 +3,4 @@ resources:
 images:
 - name: controller
   newName: ghcr.io/oliverziegert/satisfactory-operator
-  newTag: v0.0.1 # x-release-please-version
+  newTag: v0.1.0 # x-release-please-version

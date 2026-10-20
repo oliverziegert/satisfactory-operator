@@ -21,7 +21,7 @@ Install the CRDs and the operator (multi-arch image, `linux/amd64` and `linux/ar
 
 ```sh
 # x-release-please-start-version
-kubectl apply -f https://github.com/oliverziegert/satisfactory-operator/releases/download/v0.0.1/install.yaml
+kubectl apply -f https://github.com/oliverziegert/satisfactory-operator/releases/download/v0.1.0/install.yaml
 # x-release-please-end
 ```
 
