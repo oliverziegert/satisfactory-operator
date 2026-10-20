@@ -114,7 +114,8 @@ spec:
                 description: |-
                   LivenessProbeOverride replaces the default liveness probe when set.
                   The default probe uses a TCP socket check on the game port with
-                  initialDelaySeconds: 120, periodSeconds: 30, and failureThreshold: 10.
+                  timeoutSeconds: 5, periodSeconds: 30, and failureThreshold: 10. It only
+                  starts once the built-in startup probe (TCP on the game port, up to 60 minutes) succeeds.
                 properties:
                   exec:
                     description: Exec specifies a command to execute in the container.
@@ -311,8 +312,9 @@ spec:
               readinessProbeOverride:
                 description: |-
                   ReadinessProbeOverride replaces the default readiness probe when set.
-                  The default probe issues an HTTPS GET on /api/v1 with initialDelaySeconds: 30,
-                  periodSeconds: 10, and failureThreshold: 3.
+                  The default probe issues an HTTPS GET on /api/v1 with timeoutSeconds: 5,
+                  periodSeconds: 10, and failureThreshold: 3. It only starts once the
+                  built-in startup probe (TCP on the game port, up to 60 minutes) succeeds.
                 properties:
                   exec:
                     description: Exec specifies a command to execute in the container.

@@ -225,14 +225,16 @@ type SatisfactoryServerSpec struct {
 	AutoClaimDisabled *bool `json:"autoClaimDisabled,omitempty"`
 
 	// ReadinessProbeOverride replaces the default readiness probe when set.
-	// The default probe issues an HTTPS GET on /api/v1 with initialDelaySeconds: 30,
-	// periodSeconds: 10, and failureThreshold: 3.
+	// The default probe issues an HTTPS GET on /api/v1 with timeoutSeconds: 5,
+	// periodSeconds: 10, and failureThreshold: 3. It only starts once the
+	// built-in startup probe (TCP on the game port, up to 60 minutes) succeeds.
 	// +optional
 	ReadinessProbeOverride *corev1.Probe `json:"readinessProbeOverride,omitempty"`
 
 	// LivenessProbeOverride replaces the default liveness probe when set.
 	// The default probe uses a TCP socket check on the game port with
-	// initialDelaySeconds: 120, periodSeconds: 30, and failureThreshold: 10.
+	// timeoutSeconds: 5, periodSeconds: 30, and failureThreshold: 10. It only
+	// starts once the built-in startup probe (TCP on the game port, up to 60 minutes) succeeds.
 	// +optional
 	LivenessProbeOverride *corev1.Probe `json:"livenessProbeOverride,omitempty"`
 }

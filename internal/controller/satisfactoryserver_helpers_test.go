@@ -506,6 +506,19 @@ func TestBuildPodSpec_DefaultSpec(t *testing.T) {
 			t.Error("LivenessProbe should be set on the container")
 		}
 	})
+
+	t.Run("startup probe covers first-boot game download", func(t *testing.T) {
+		p := c.StartupProbe
+		if p == nil || p.TCPSocket == nil {
+			t.Fatal("StartupProbe should be a TCPSocket probe")
+		}
+		if p.TCPSocket.Port.IntValue() != int(spec.GamePort) {
+			t.Errorf("port = %d, want %d", p.TCPSocket.Port.IntValue(), spec.GamePort)
+		}
+		if budget := p.PeriodSeconds * p.FailureThreshold; budget < 3600 {
+			t.Errorf("startup budget = %ds, want >= 3600s", budget)
+		}
+	})
 }
 
 func TestBuildPodSpec_CustomImage(t *testing.T) {
@@ -991,9 +1004,9 @@ func TestBuildReadinessProbe_Default(t *testing.T) {
 		}
 	})
 
-	t.Run("initialDelaySeconds is 30", func(t *testing.T) {
-		if probe.InitialDelaySeconds != 30 {
-			t.Errorf("initialDelaySeconds = %d, want 30", probe.InitialDelaySeconds)
+	t.Run("timeoutSeconds is 5", func(t *testing.T) {
+		if probe.TimeoutSeconds != 5 {
+			t.Errorf("timeoutSeconds = %d, want 5", probe.TimeoutSeconds)
 		}
 	})
 
@@ -1069,9 +1082,9 @@ func TestBuildLivenessProbe_Default(t *testing.T) {
 		}
 	})
 
-	t.Run("initialDelaySeconds is 120", func(t *testing.T) {
-		if probe.InitialDelaySeconds != 120 {
-			t.Errorf("initialDelaySeconds = %d, want 120", probe.InitialDelaySeconds)
+	t.Run("timeoutSeconds is 5", func(t *testing.T) {
+		if probe.TimeoutSeconds != 5 {
+			t.Errorf("timeoutSeconds = %d, want 5", probe.TimeoutSeconds)
 		}
 	})
 

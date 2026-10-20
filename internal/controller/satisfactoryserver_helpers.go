@@ -120,7 +120,7 @@ func buildPVCSpec(spec satisfactoryv1alpha1.SatisfactoryServerSpec) corev1.Persi
 
 // buildReadinessProbe returns the readiness probe for the Satisfactory server container.
 // If ReadinessProbeOverride is set on the spec, it is returned as-is. Otherwise the default
-// probe is an HTTPS GET on /api/v1 at the game port with a 30s initial delay.
+// probe is an HTTPS GET on /api/v1 at the game port, gated by the startup probe.
 func buildReadinessProbe(spec satisfactoryv1alpha1.SatisfactoryServerSpec) *corev1.Probe {
 	if spec.ReadinessProbeOverride != nil {
 		return spec.ReadinessProbeOverride
@@ -133,15 +133,15 @@ func buildReadinessProbe(spec satisfactoryv1alpha1.SatisfactoryServerSpec) *core
 				Scheme: corev1.URISchemeHTTPS,
 			},
 		},
-		InitialDelaySeconds: 30,
-		PeriodSeconds:       10,
-		FailureThreshold:    3,
+		TimeoutSeconds:   5,
+		PeriodSeconds:    10,
+		FailureThreshold: 3,
 	}
 }
 
 // buildLivenessProbe returns the liveness probe for the Satisfactory server container.
 // If LivenessProbeOverride is set on the spec, it is returned as-is. Otherwise the default
-// probe is a TCP socket check on the game port with a 120s initial delay.
+// probe is a TCP socket check on the game port, gated by the startup probe.
 func buildLivenessProbe(spec satisfactoryv1alpha1.SatisfactoryServerSpec) *corev1.Probe {
 	if spec.LivenessProbeOverride != nil {
 		return spec.LivenessProbeOverride
@@ -152,9 +152,24 @@ func buildLivenessProbe(spec satisfactoryv1alpha1.SatisfactoryServerSpec) *corev
 				Port: intstrFromInt32(spec.GamePort),
 			},
 		},
-		InitialDelaySeconds: 120,
-		PeriodSeconds:       30,
-		FailureThreshold:    10,
+		TimeoutSeconds:   5,
+		PeriodSeconds:    30,
+		FailureThreshold: 10,
+	}
+}
+
+// buildStartupProbe returns the startup probe for the Satisfactory server container.
+// It holds off liveness and readiness until the game port opens, which on first boot
+// waits for the image to download the full game (8GB+) even when SkipUpdate is set.
+func buildStartupProbe(spec satisfactoryv1alpha1.SatisfactoryServerSpec) *corev1.Probe {
+	return &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			TCPSocket: &corev1.TCPSocketAction{
+				Port: intstrFromInt32(spec.GamePort),
+			},
+		},
+		PeriodSeconds:    10,
+		FailureThreshold: 360, // 60 minutes
 	}
 }
 
@@ -189,6 +204,7 @@ func buildPodSpec(spec satisfactoryv1alpha1.SatisfactoryServerSpec) corev1.PodSp
 				ImagePullPolicy: corev1.PullIfNotPresent,
 				ReadinessProbe:  buildReadinessProbe(spec),
 				LivenessProbe:   buildLivenessProbe(spec),
+				StartupProbe:    buildStartupProbe(spec),
 			},
 		},
 		Volumes: []corev1.Volume{
