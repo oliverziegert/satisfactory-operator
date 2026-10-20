@@ -1,0 +1,6 @@
+## Append samples of your project ##
+resources:
+- satisfactory_v1alpha1_satisfactoryserver.yaml
+- satisfactory_v1alpha1_savegame.yaml
+- satisfactory_v1alpha1_clusterpolicy.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

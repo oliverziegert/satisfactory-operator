@@ -1,0 +1,76 @@
+apiVersion: satisfactory.oliverziegert.github.com/v1alpha1
+kind: SatisfactoryServer
+metadata:
+  name: my-satisfactory-server
+  namespace: default
+spec:
+  # Container image. Pin to a specific tag for reproducible deployments.
+  image: ghcr.io/robtme/satisfactory-server:v1.9.10
+
+  # Player and server limits
+  maxPlayers: 4
+  maxTickRate: 30
+
+  # Prevent automatic game updates on pod restart (recommended for Kubernetes).
+  skipUpdate: true
+
+  # Network exposure: LoadBalancer (default), NodePort, or ClusterIP
+  serviceType: LoadBalancer
+
+  # Retain the /config PVC when this resource is deleted (default: true).
+  # Set to false to also delete save game data on deletion.
+  retainPVCOnDelete: true
+
+  # Optional: in-game display name set when the server is automatically claimed.
+  # Defaults to the Kubernetes resource name ("my-satisfactory-server") when omitted.
+  # serverName: "My Satisfactory Server"
+
+  # Optional: set to true to disable automatic server claiming.
+  # Useful when migrating an existing server or when you want to claim manually.
+  # autoClaimDisabled: false
+
+  # Optional: reference a Secret containing the admin password under key "password".
+  # When set, the controller authenticates with the game server API, caches the
+  # resulting token in a managed Secret named "<server-name>-auth-token", and
+  # automatically claims the server if it is unclaimed.
+  # adminPasswordSecretRef:
+  #   name: my-satisfactory-server-admin
+
+  # Persistent storage for game files, saves, and logs (~15Gi minimum).
+  storage:
+    size: 15Gi
+    # storageClassName: fast-ssd  # Uncomment to use a specific StorageClass
+
+  # Resource requests and limits for the server container.
+  resources:
+    requests:
+      memory: 4Gi
+    limits:
+      memory: 8Gi
+
+  # Health probes (defaults shown below — no override needed for typical deployments).
+  #
+  # Readiness probe: HTTPS GET /api/v1 on the game port.
+  #   Marks the pod ready once the HTTPS API is responding.
+  #   Default: initialDelaySeconds: 30, periodSeconds: 10, failureThreshold: 3
+  #
+  # Liveness probe: TCP socket on the game port.
+  #   Restarts the pod if the process stops listening (max 5 min window by default).
+  #   Default: initialDelaySeconds: 120, periodSeconds: 30, failureThreshold: 10
+  #
+  # Override example — increase thresholds for large saves or slow downloads:
+  # readinessProbeOverride:
+  #   httpGet:
+  #     path: /api/v1
+  #     port: 7777
+  #     scheme: HTTPS
+  #   initialDelaySeconds: 60
+  #   periodSeconds: 10
+  #   failureThreshold: 6
+  #
+  # livenessProbeOverride:
+  #   tcpSocket:
+  #     port: 7777
+  #   initialDelaySeconds: 300
+  #   periodSeconds: 30
+  #   failureThreshold: 20

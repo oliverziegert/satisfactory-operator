@@ -1,0 +1,43 @@
+apiVersion: satisfactory.oliverziegert.github.com/v1alpha1
+kind: ClusterPolicy
+metadata:
+  labels:
+    app.kubernetes.io/name: satisfactory-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: clusterpolicy-sample
+spec:
+  # defaultResourceLimits defines CPU and memory applied to servers that have no
+  # explicit resource requirements set.
+  defaultResourceLimits:
+    requests:
+      cpu: "2"
+      memory: 4Gi
+    limits:
+      cpu: "4"
+      memory: 8Gi
+
+  # defaultStorageClassName is the StorageClass used for new server PVCs when
+  # the server does not specify one.
+  defaultStorageClassName: standard
+
+  # defaultServerConfig provides default game server settings applied to servers
+  # where those fields are at their zero value.
+  defaultServerConfig:
+    maxPlayers: 4
+    maxTickRate: 30
+    skipUpdate: true
+
+  # allowedImageVersions is an optional allowlist of container image references.
+  # Leave empty (or omit) to allow any image.
+  # Matching is exact (registry, repository, tag), so each spelling is listed.
+  allowedImageVersions:
+    - ghcr.io/robtme/satisfactory-server:v1.9.10
+    - ghcr.io/robtme/satisfactory-server:v1.9.9
+    - robtme/satisfactory-server:v1.9.10
+    - robtme/satisfactory-server:v1.9.9
+    - docker.io/robtme/satisfactory-server:v1.9.10
+    - docker.io/robtme/satisfactory-server:v1.9.9
+
+  # maxServersPerNamespace limits how many SatisfactoryServer resources can exist
+  # in a single namespace. Set to 0 or omit to enforce no limit.
+  maxServersPerNamespace: 5

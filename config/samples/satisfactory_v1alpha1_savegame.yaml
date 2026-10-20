@@ -1,0 +1,17 @@
+apiVersion: satisfactory.oliverziegert.github.com/v1alpha1
+kind: SaveGame
+metadata:
+  labels:
+    app.kubernetes.io/name: satisfactory-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: savegame-sample
+spec:
+  # SatisfactoryServer in the same namespace; it needs adminPasswordSecretRef set.
+  serverRef: my-satisfactory-server
+  # Each backup is saved as <saveName>_<UTC timestamp>, e.g. hourly_20261019-140000.
+  saveName: hourly
+  # Every hour on the hour. Omit for a single one-shot save.
+  schedule: "0 * * * *"
+  retentionPolicy:
+    maxCount: 24
+    maxAge: 72h

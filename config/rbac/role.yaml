@@ -1,0 +1,90 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - persistentvolumeclaims
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - satisfactory.oliverziegert.github.com
+  resources:
+  - clusterpolicies
+  - satisfactoryservers
+  - savegames
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - satisfactory.oliverziegert.github.com
+  resources:
+  - clusterpolicies/finalizers
+  - satisfactoryservers/finalizers
+  - savegames/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - satisfactory.oliverziegert.github.com
+  resources:
+  - clusterpolicies/status
+  - satisfactoryservers/status
+  - savegames/status
+  verbs:
+  - get
+  - patch
+  - update
