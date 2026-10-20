@@ -15,7 +15,19 @@ A Kubernetes operator that runs [Satisfactory](https://www.satisfactorygame.com/
 
 The game server image defaults to the community image [`ghcr.io/robtme/satisfactory-server`](https://github.com/robtme/satisfactory-server) (amd64 only). Game updates on pod restart are off by default (`skipUpdate: true`) to avoid unexpected 8 GB+ downloads.
 
-## Quick start
+## Install
+
+Install the CRDs and the operator (multi-arch image, `linux/amd64` and `linux/arm64`) from the latest release:
+
+```sh
+# x-release-please-start-version
+kubectl apply -f https://github.com/oliverziegert/satisfactory-operator/releases/download/v0.0.1/install.yaml
+# x-release-please-end
+```
+
+Then create a server as in the last step of the quick start below.
+
+## Quick start (from source)
 
 Prerequisites: Go 1.25+, Docker, kubectl, and an **amd64** Kubernetes cluster with a default StorageClass. Plan for ~4–8 GiB memory and ~15 GiB storage per server.
 

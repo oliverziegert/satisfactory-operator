@@ -1,0 +1,19 @@
+name: PR Title
+
+# pull_request_target also covers fork PRs; safe because no PR code is checked out.
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  pr-title:
+    name: PR Title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Conventional Commit title
+        uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

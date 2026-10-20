@@ -98,6 +98,7 @@ Tests use Ginkgo/Gomega with envtest (controller-runtime's test framework) for t
 Renovate (hosted Mend GitHub App) is configured in `.github/renovate.json5`. The Dependency Dashboard issue lists everything it tracks.
 
 - **Needs dashboard approval** before a PR opens: all majors, `OPERATOR_SDK_VERSION` and `OPM_VERSION` (scaffold upgrades), and kubernetes stack minors (`k8s.io/*`, controller-runtime, controller-tools).
+- **Commit types**: PR titles are Conventional Commits. `gomod` and `dockerfile` updates (Go modules, golang builder and distroless base images) are `fix(deps)` and trigger a release. Everything else is `chore(deps)`; it is listed in the changelog and can open the release PR, but nothing ships until that PR is merged: GitHub Actions, Makefile tools and the test-only `github.com/onsi/**` modules.
 - **Not automerged**: the go toolchain group (`go` directive + `golang` builder image). Go patch releases don't bump the `go` directive.
 - **Automerged** after checks pass: digests, kubernetes stack patches, GitHub Actions minor/patch, ginkgo/gomega minor/patch, golangci-lint (Makefile + `lint.yml` in one PR).
 - **Red drift check** in `test.yml` ("Check for stale generated files"): Renovate can't run codegen. Check out the branch, then:
@@ -107,3 +108,18 @@ Renovate (hosted Mend GitHub App) is configured in `.github/renovate.json5`. The
   commit and push.
 - The `# renovate: datasource=... depName=...` comments above the Makefile tool versions drive the regex manager. Operator SDK re-scaffolds rewrite the Makefile, so restore those comments afterwards and check that all five tools still appear on the dashboard.
 - Validate config changes with `npx --yes -p node@24 -p renovate@latest -- renovate-config-validator .github/renovate.json5` (Renovate requires Node 24).
+
+## Releasing
+
+release-please (`.github/workflows/release.yml`, `release-please-config.json`, `.release-please-manifest.json`) turns Conventional Commits on `main` into releases.
+
+- **PR titles** must be Conventional Commits (required `PR Title` check, `.github/workflows/pr-title.yml`). Squash merges use the PR title as the commit title. Below 1.0, `feat` and breaking changes bump the minor version and `fix` bumps the patch version.
+- **Release PR**: release-please keeps one open PR with the next version and the CHANGELOG. It bumps the version between the `x-release-please` markers in `Makefile`, `config/manager/kustomization.yaml` and `README.md`, so never edit those versions by hand. **Merging it is the release**: the same workflow tags `vX.Y.Z`, creates the GitHub Release, pushes `ghcr.io/oliverziegert/satisfactory-operator:vX.Y.Z` and `:vX.Y` (amd64+arm64, no `latest`), and attaches `install.yaml`.
+- **Forcing a version** (e.g. 1.0): set `"release-as": "1.0.0"` on the `"."` package in `release-please-config.json` in a `chore:` PR, then remove it after the release.
+- **Secrets**: `RELEASE_APP_CLIENT_ID` and `RELEASE_APP_PRIVATE_KEY` belong to a GitHub App installed on this repo only (contents + pull-requests read/write). The release-please job needs the App token so the release PR triggers the required checks; `GITHUB_TOKEN` wouldn't.
+- **Local edits**: `make deploy`/`build-installer`/`bundle` run `kustomize edit set image` and then restore `config/manager/kustomization.yaml`, because kustomize drops the version marker comment.
+- **Verify a release**:
+  ```bash
+  gh attestation verify oci://ghcr.io/oliverziegert/satisfactory-operator:vX.Y.Z -R oliverziegert/satisfactory-operator
+  docker buildx imagetools inspect ghcr.io/oliverziegert/satisfactory-operator:vX.Y.Z
+  ```

@@ -5,6 +5,9 @@
     "docker:pinDigests",
     "helpers:pinGitHubActionDigests",
   ],
+  // Conventional Commits drive release-please: "fix" releases, "chore" only lands in the changelog.
+  semanticCommits: "enabled",
+  semanticCommitType: "chore",
   // Keep go.mod/go.sum tidy so Go PRs pass the drift check in test.yml.
   postUpdateOptions: ["gomodTidy"],
   customManagers: [
@@ -117,6 +120,16 @@
       matchPackageNames: ["github.com/onsi/**"],
       matchUpdateTypes: ["minor", "patch"],
       automerge: true,
+    },
+    {
+      description: "Go modules and Dockerfile images ship in the operator image, so they trigger a release",
+      matchManagers: ["gomod", "dockerfile"],
+      semanticCommitType: "fix",
+    },
+    {
+      description: "Test-only modules don't ship in the image",
+      matchPackageNames: ["github.com/onsi/**"],
+      semanticCommitType: "chore",
     },
   ],
 }
