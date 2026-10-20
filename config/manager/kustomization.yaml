@@ -1,2 +1,6 @@
 resources:
 - manager.yaml
+images:
+- name: controller
+  newName: ghcr.io/oliverziegert/satisfactory-operator
+  newTag: v0.0.1 # x-release-please-version
