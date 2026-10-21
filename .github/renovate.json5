@@ -122,6 +122,11 @@
       automerge: true,
     },
     {
+      description: "The operator's own image tag is bumped by release-please; a digest pin would outlive the tag bump",
+      matchPackageNames: ["ghcr.io/oliverziegert/satisfactory-operator"],
+      enabled: false,
+    },
+    {
       description: "Go modules and Dockerfile images ship in the operator image, so they trigger a release",
       matchManagers: ["gomod", "dockerfile"],
       semanticCommitType: "fix",
