@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	satisfactoryv1alpha1 "github.com/oliverziegert/satisfactory-operator/api/v1alpha1"
@@ -183,6 +184,37 @@ func TestSetProgressingCondition_Complete(t *testing.T) {
 
 	if server.Status.Conditions[0].Status != metav1.ConditionFalse {
 		t.Error("expected Progressing=False when rollout complete")
+	}
+}
+
+// --- podFailure tests ---
+
+func TestPodFailure(t *testing.T) {
+	waiting := func(reason string) corev1.ContainerStatus {
+		return corev1.ContainerStatus{State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: reason, Message: "msg"}}}
+	}
+	crashLoop := waiting("CrashLoopBackOff")
+	crashLoop.LastTerminationState.Terminated = &corev1.ContainerStateTerminated{ExitCode: 1}
+
+	tests := []struct {
+		name       string
+		status     corev1.ContainerStatus
+		wantReason string
+		wantMsg    string
+	}{
+		{"crash loop with exit code", crashLoop, "CrashLoopBackOff", "msg (last exit code 1)"},
+		{"image pull backoff", waiting("ImagePullBackOff"), "ImagePullBackOff", "msg"},
+		{"still creating", waiting("ContainerCreating"), "", ""},
+		{"running", corev1.ContainerStatus{State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}}, "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pod := &corev1.Pod{Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{tt.status}}}
+			reason, msg := podFailure(pod)
+			if reason != tt.wantReason || msg != tt.wantMsg {
+				t.Errorf("podFailure() = (%q, %q), want (%q, %q)", reason, msg, tt.wantReason, tt.wantMsg)
+			}
+		})
 	}
 }
 
