@@ -50,8 +50,8 @@ spec:
 
   # Health probes (defaults shown below — no override needed for typical deployments).
   #
-  # Readiness probe: HTTPS GET /api/v1 on the game port.
-  #   Marks the pod ready once the HTTPS API is responding.
+  # Readiness probe: runs the image's /home/steam/healthcheck.sh (POST HealthCheck on the HTTPS API).
+  #   Marks the pod ready once the API reports healthy.
   #   Default: initialDelaySeconds: 30, periodSeconds: 10, failureThreshold: 3
   #
   # Liveness probe: TCP socket on the game port.
@@ -60,10 +60,8 @@ spec:
   #
   # Override example — increase thresholds for large saves or slow downloads:
   # readinessProbeOverride:
-  #   httpGet:
-  #     path: /api/v1
-  #     port: 7777
-  #     scheme: HTTPS
+  #   exec:
+  #     command: ["/home/steam/healthcheck.sh"]
   #   initialDelaySeconds: 60
   #   periodSeconds: 10
   #   failureThreshold: 6
