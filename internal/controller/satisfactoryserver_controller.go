@@ -168,6 +168,11 @@ func (r *SatisfactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.R
 	// 10. Set game-specific conditions.
 	r.setGameConditions(server, ss, probe)
 
+	// 10a. While the pod isn't ready, surface a crash loop or image pull failure as Degraded.
+	if probe == nil && ss.Name != "" {
+		r.setPodFailureCondition(ctx, server)
+	}
+
 	// 11. Update Phase.
 	r.updatePhaseFromConditions(server)
 
@@ -182,7 +187,47 @@ func (r *SatisfactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
+	// 14. Poll while the pod isn't ready: a crash-looping pod doesn't change the StatefulSet status.
+	if probe == nil && ss.Name != "" {
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
 	return ctrl.Result{}, nil
+}
+
+// setPodFailureCondition sets Degraded=True when the server's pod is crash-looping or can't pull its image.
+func (r *SatisfactoryServerReconciler) setPodFailureCondition(ctx context.Context, server *satisfactoryv1alpha1.SatisfactoryServer) {
+	pod := &corev1.Pod{}
+	if err := r.Get(ctx, types.NamespacedName{Name: server.Name + "-0", Namespace: server.Namespace}, pod); err != nil {
+		if !apierrors.IsNotFound(err) {
+			logf.FromContext(ctx).Error(err, "failed to get server pod")
+		}
+		return
+	}
+	if reason, msg := podFailure(pod); reason != "" {
+		conditions.SetSatisfactoryServer(server, satisfactoryv1alpha1.SatisfactoryServerConditionTypeDegraded,
+			metav1.ConditionTrue, reason, msg)
+	}
+}
+
+// podFailure returns the waiting reason and message of a container stuck in a crash loop or
+// image pull failure, or empty strings if there is none.
+func podFailure(pod *corev1.Pod) (reason, message string) {
+	for _, cs := range pod.Status.ContainerStatuses {
+		w := cs.State.Waiting
+		if w == nil {
+			continue
+		}
+		switch w.Reason {
+		case "CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull":
+			message = w.Message
+			if t := cs.LastTerminationState.Terminated; t != nil {
+				message = fmt.Sprintf("%s (last exit code %d)", message, t.ExitCode)
+			}
+			return w.Reason, message
+		}
+	}
+	return "", ""
 }
 
 // gameAPIBaseURL returns the in-cluster HTTPS API URL of the server's single pod.
