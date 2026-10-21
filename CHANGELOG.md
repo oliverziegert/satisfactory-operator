@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.2](https://github.com/oliverziegert/satisfactory-operator/compare/v0.1.1...v0.1.2) (2026-10-21)
+
+
+### Bug Fixes
+
+* **deps:** update golang:1.27 docker digest to f20d83a ([#35](https://github.com/oliverziegert/satisfactory-operator/issues/35)) ([2ece40d](https://github.com/oliverziegert/satisfactory-operator/commit/2ece40d69ead14278517a0dfdc4866c807906d4e))
+* readiness probe, claim detection and API error handling ([#36](https://github.com/oliverziegert/satisfactory-operator/issues/36)) ([cd5bb5b](https://github.com/oliverziegert/satisfactory-operator/commit/cd5bb5b72993e3d449fc9b4fa265b6d523298f8f))
+* report a crash-looping server pod as `Degraded` ([#37](https://github.com/oliverziegert/satisfactory-operator/issues/37)) ([8380e73](https://github.com/oliverziegert/satisfactory-operator/commit/8380e73f3b98570df0f2cc368322ba439fa1555e))
+
+
+### Miscellaneous Chores
+
+* archive `release-pipeline` OpenSpec change ([#33](https://github.com/oliverziegert/satisfactory-operator/issues/33)) ([afee666](https://github.com/oliverziegert/satisfactory-operator/commit/afee6664b31eda20c73ed747d31b24f18e3733f0))
+
 ## [0.1.1](https://github.com/oliverziegert/satisfactory-operator/compare/v0.1.0...v0.1.1) (2026-10-21)
 
 
