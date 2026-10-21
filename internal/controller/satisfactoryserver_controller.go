@@ -229,7 +229,7 @@ func (r *SatisfactoryServerReconciler) probeGameServer(ctx context.Context, c *s
 			// Auth error → server is reachable but not yet authenticated/claimed for full API access.
 			return &probeResult{
 				Reachable: true,
-				Claimed:   false,
+				Claimed:   isClaimed(ctx, c),
 			}
 		}
 		// Connection failure / timeout → server not reachable.
@@ -241,10 +241,18 @@ func (r *SatisfactoryServerReconciler) probeGameServer(ctx context.Context, c *s
 	state := resp.ServerGameState
 	return &probeResult{
 		Reachable:         true,
-		Claimed:           state.AutoLoadSessionName != "" || state.IsGameRunning,
+		Claimed:           isClaimed(ctx, c),
 		ActiveSessionName: state.ActiveSessionName,
 		NumPlayers:        int32(state.NumConnectedPlayers),
 	}
+}
+
+// isClaimed reports whether the server has been claimed. Only an unclaimed server grants
+// InitialAdmin without a password; the game state carries no claim flag.
+func isClaimed(ctx context.Context, c *satisfactory.Client) bool {
+	_, err := c.PasswordlessLogin(ctx, satisfactory.PrivilegeLevelInitialAdmin)
+	var apiErr *satisfactory.APIError
+	return errors.As(err, &apiErr) && apiErr.ErrorCode == "passwordless_login_not_possible"
 }
 
 // setGameConditions updates all game-specific and aggregate conditions from the probe result.

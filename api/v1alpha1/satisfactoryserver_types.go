@@ -225,7 +225,7 @@ type SatisfactoryServerSpec struct {
 	AutoClaimDisabled *bool `json:"autoClaimDisabled,omitempty"`
 
 	// ReadinessProbeOverride replaces the default readiness probe when set.
-	// The default probe issues an HTTPS GET on /api/v1 with timeoutSeconds: 5,
+	// The default probe runs the image's /home/steam/healthcheck.sh with timeoutSeconds: 5,
 	// periodSeconds: 10, and failureThreshold: 3. It only starts once the
 	// built-in startup probe (TCP on the game port, up to 60 minutes) succeeds.
 	// +optional

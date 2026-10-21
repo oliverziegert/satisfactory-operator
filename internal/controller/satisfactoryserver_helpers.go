@@ -120,18 +120,15 @@ func buildPVCSpec(spec satisfactoryv1alpha1.SatisfactoryServerSpec) corev1.Persi
 
 // buildReadinessProbe returns the readiness probe for the Satisfactory server container.
 // If ReadinessProbeOverride is set on the spec, it is returned as-is. Otherwise the default
-// probe is an HTTPS GET on /api/v1 at the game port, gated by the startup probe.
+// probe runs the image's healthcheck.sh (POST HealthCheck on the HTTPS API), gated by the startup probe.
 func buildReadinessProbe(spec satisfactoryv1alpha1.SatisfactoryServerSpec) *corev1.Probe {
 	if spec.ReadinessProbeOverride != nil {
 		return spec.ReadinessProbeOverride
 	}
 	return &corev1.Probe{
 		ProbeHandler: corev1.ProbeHandler{
-			HTTPGet: &corev1.HTTPGetAction{
-				Path:   "/api/v1",
-				Port:   intstrFromInt32(spec.GamePort),
-				Scheme: corev1.URISchemeHTTPS,
-			},
+			// The API only answers POST, so an httpGet probe always gets 404.
+			Exec: &corev1.ExecAction{Command: []string{"/home/steam/healthcheck.sh"}},
 		},
 		TimeoutSeconds:   5,
 		PeriodSeconds:    10,

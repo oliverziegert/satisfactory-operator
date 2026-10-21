@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 // Client is a typed HTTP client for the Satisfactory Dedicated Server HTTPS API.
@@ -42,8 +43,9 @@ func NewClient(baseURL string, tlsConfig *tls.Config) *Client {
 		transport.TLSClientConfig = tlsConfig
 	}
 	return &Client{
-		baseURL:    baseURL,
-		httpClient: &http.Client{Transport: transport},
+		baseURL: baseURL,
+		// The game server never answers some calls (e.g. SaveGame with no game running); don't block the reconciler forever.
+		httpClient: &http.Client{Transport: transport, Timeout: time.Minute},
 	}
 }
 
@@ -87,18 +89,20 @@ func (c *Client) doRequest(ctx context.Context, functionName string, body any, r
 // non-2xx: decodes the body into *APIError and returns it.
 func (c *Client) parseResponse(resp *http.Response, result any) error {
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		if result == nil {
-			return nil
-		}
 		// Responses wrap the payload in {"data": {...}}
 		var wrapper struct {
 			Data json.RawMessage `json:"data"`
+			APIError
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&wrapper); err != nil {
 			// Some 2xx responses have no body (e.g. 204)
 			return nil
 		}
-		if wrapper.Data == nil {
+		// The game server reports some errors (e.g. passwordless_login_not_possible) with HTTP 200.
+		if wrapper.ErrorCode != "" {
+			return &wrapper.APIError
+		}
+		if result == nil || wrapper.Data == nil {
 			return nil
 		}
 		if err := json.Unmarshal(wrapper.Data, result); err != nil {

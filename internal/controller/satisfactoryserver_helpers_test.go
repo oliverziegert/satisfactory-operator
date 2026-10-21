@@ -980,27 +980,9 @@ func TestBuildReadinessProbe_Default(t *testing.T) {
 		t.Fatal("expected non-nil probe")
 	}
 
-	t.Run("uses HTTPGet handler", func(t *testing.T) {
-		if probe.HTTPGet == nil {
-			t.Fatal("HTTPGet should be set for default readiness probe")
-		}
-	})
-
-	t.Run("path is /api/v1", func(t *testing.T) {
-		if probe.HTTPGet.Path != "/api/v1" {
-			t.Errorf("path = %q, want %q", probe.HTTPGet.Path, "/api/v1")
-		}
-	})
-
-	t.Run("scheme is HTTPS", func(t *testing.T) {
-		if probe.HTTPGet.Scheme != corev1.URISchemeHTTPS {
-			t.Errorf("scheme = %q, want HTTPS", probe.HTTPGet.Scheme)
-		}
-	})
-
-	t.Run("port is game port", func(t *testing.T) {
-		if probe.HTTPGet.Port.IntValue() != int(spec.GamePort) {
-			t.Errorf("port = %d, want %d", probe.HTTPGet.Port.IntValue(), spec.GamePort)
+	t.Run("execs the image healthcheck", func(t *testing.T) {
+		if probe.Exec == nil || len(probe.Exec.Command) != 1 || probe.Exec.Command[0] != "/home/steam/healthcheck.sh" {
+			t.Fatalf("Exec = %+v, want /home/steam/healthcheck.sh", probe.Exec)
 		}
 	})
 
@@ -1021,19 +1003,6 @@ func TestBuildReadinessProbe_Default(t *testing.T) {
 			t.Errorf("failureThreshold = %d, want 3", probe.FailureThreshold)
 		}
 	})
-}
-
-func TestBuildReadinessProbe_CustomPort(t *testing.T) {
-	spec := defaultSpec()
-	spec.GamePort = 7778
-	probe := buildReadinessProbe(spec)
-
-	if probe.HTTPGet == nil {
-		t.Fatal("HTTPGet should be set")
-	}
-	if probe.HTTPGet.Port.IntValue() != 7778 {
-		t.Errorf("port = %d, want 7778", probe.HTTPGet.Port.IntValue())
-	}
 }
 
 func TestBuildReadinessProbe_Override(t *testing.T) {

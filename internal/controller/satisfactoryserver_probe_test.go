@@ -38,22 +38,41 @@ func newTLSTestServer(handler http.Handler) *httptest.Server {
 	return httptest.NewTLSServer(handler)
 }
 
-func TestProbeGameServer_Success(t *testing.T) {
-	ts := newTLSTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := map[string]any{
+// newProbeTestServer serves QueryServerState and answers PasswordlessLogin(InitialAdmin)
+// the way a claimed or unclaimed server does.
+func newProbeTestServer(claimed bool) *httptest.Server {
+	return newTLSTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Function string `json:"function"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		w.Header().Set("Content-Type", "application/json")
+		if req.Function == "PasswordlessLogin" {
+			if claimed {
+				// The real server sends this error with HTTP 200.
+				_, _ = w.Write([]byte(`{"errorCode":"passwordless_login_not_possible"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":{"authenticationToken":"initial-admin"}}`))
+			return
+		}
+		// A fresh claimed server: world loaded, but no autoload session and game not running.
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": map[string]any{
 				"serverGameState": map[string]any{
 					"activeSessionName":   "MyWorld",
 					"numConnectedPlayers": 2,
 					"playerLimit":         4,
-					"autoLoadSessionName": "MyWorld",
-					"isGameRunning":       true,
+					"autoLoadSessionName": "",
+					"isGameRunning":       false,
 				},
 			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
+		})
 	}))
+}
+
+func TestProbeGameServer_Success(t *testing.T) {
+	ts := newProbeTestServer(true)
 	defer ts.Close()
 
 	c := satisfactory.NewClient(ts.URL, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec
@@ -63,13 +82,24 @@ func TestProbeGameServer_Success(t *testing.T) {
 		t.Error("expected Reachable=true")
 	}
 	if !result.Claimed {
-		t.Error("expected Claimed=true (isGameRunning=true)")
+		t.Error("expected Claimed=true (passwordless InitialAdmin login refused)")
 	}
 	if result.ActiveSessionName != "MyWorld" {
 		t.Errorf("expected ActiveSessionName=MyWorld, got %s", result.ActiveSessionName)
 	}
 	if result.NumPlayers != 2 {
 		t.Errorf("expected NumPlayers=2, got %d", result.NumPlayers)
+	}
+}
+
+func TestProbeGameServer_Unclaimed(t *testing.T) {
+	ts := newProbeTestServer(false)
+	defer ts.Close()
+
+	c := satisfactory.NewClient(ts.URL, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec
+	rec := &SatisfactoryServerReconciler{}
+	if rec.probeGameServer(context.Background(), c).Claimed {
+		t.Error("expected Claimed=false (passwordless InitialAdmin login granted)")
 	}
 }
 
