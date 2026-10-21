@@ -30,7 +30,7 @@
 - [x] 5.3 Verify that the `0.1.0` release PR is opened by the App, runs Lint/Tests/E2E Tests/PR Title, and bumps the Makefile, kustomization and README
 - [x] 5.4 Merge the release PR. Verify that tag `v0.1.0`, the GitHub Release with `install.yaml`, and image tags `v0.1.0` + `v0.1` (no `latest`) exist, that `docker buildx imagetools inspect` lists amd64+arm64, and that `gh attestation verify` succeeds
 - [x] 5.5 Make the GHCR package public and verify an anonymous `docker pull ghcr.io/oliverziegert/satisfactory-operator:v0.1.0` works
-- [ ] 5.6 Remove `release-as` from `release-please-config.json` in a `chore:` PR and verify the next release PR proposes a normal SemVer bump
+- [x] 5.6 Remove `release-as` from `release-please-config.json` in a `chore:` PR and verify the next release PR proposes a normal SemVer bump
 
 ## Workflow follow-up
 
