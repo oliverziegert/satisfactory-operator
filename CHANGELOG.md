@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.1](https://github.com/oliverziegert/satisfactory-operator/compare/v0.1.0...v0.1.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* **deploy:** stop Renovate from digest-pinning the operator image ([#32](https://github.com/oliverziegert/satisfactory-operator/issues/32)) ([545c163](https://github.com/oliverziegert/satisfactory-operator/commit/545c163e10d0739fdea4b0f90f59f9453f23cbda))
+* **deps:** update gcr.io/distroless/static:nonroot docker digest to d620678 ([#31](https://github.com/oliverziegert/satisfactory-operator/issues/31)) ([4f3d8b5](https://github.com/oliverziegert/satisfactory-operator/commit/4f3d8b52af9e9bdca06147002154f3323ebd3026))
+* **deps:** update golang:1.27 docker digest to 6928d94 ([#27](https://github.com/oliverziegert/satisfactory-operator/issues/27)) ([4779f26](https://github.com/oliverziegert/satisfactory-operator/commit/4779f2603ea1bbcbf73f7a54228f9d7629dfd3a7))
+* **deps:** update golang:1.27 docker digest to f241642 ([#28](https://github.com/oliverziegert/satisfactory-operator/issues/28)) ([1451f07](https://github.com/oliverziegert/satisfactory-operator/commit/1451f076997e92b2bdcfeb1976751441b678ad6a))
+
+
+### Miscellaneous Chores
+
+* **deps:** pin ghcr.io/oliverziegert/satisfactory-operator docker tag to bcdd211 ([#25](https://github.com/oliverziegert/satisfactory-operator/issues/25)) ([d1aa500](https://github.com/oliverziegert/satisfactory-operator/commit/d1aa5006f067ae4b677a12e17a58075400256be8))
+* **deps:** update ghcr.io/oliverziegert/satisfactory-operator:v0.1.0 docker digest to 4b498cb ([#30](https://github.com/oliverziegert/satisfactory-operator/issues/30)) ([68b0671](https://github.com/oliverziegert/satisfactory-operator/commit/68b0671ba42c2dc189b699cdefe55126a10b0234))
+* drop `release-as` now that v0.1.0 is released ([#29](https://github.com/oliverziegert/satisfactory-operator/issues/29)) ([1e69179](https://github.com/oliverziegert/satisfactory-operator/commit/1e691794475249e7f5d12511f92df29b5dcae389))
+
 ## 0.1.0 (2026-10-20)
 
 
