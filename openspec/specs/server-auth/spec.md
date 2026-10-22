@@ -47,18 +47,22 @@ The controller SHALL cache the authentication token in a Secret named `<server-n
 
 #### Scenario: Cached token reused on subsequent reconciliation
 - **WHEN** the `<server-name>-auth-token` Secret exists with a token value
-- **THEN** the controller SHALL read the cached token and call `VerifyAuthenticationToken` before using it
+- **THEN** the controller SHALL read the cached token and verify it with an authenticated `QueryServerState` call before using it
 
 ### Requirement: Token verification and re-authentication
-Before using a cached token, the controller SHALL call `VerifyAuthenticationToken`. If verification fails, the controller SHALL re-authenticate via `PasswordLogin` and update the cached token.
+Before using a cached token, the controller SHALL verify it with an authenticated `QueryServerState` call. If that call returns any error, the controller SHALL re-authenticate via `PasswordLogin` and update the cached token. The log entry for the re-authentication SHALL include the verification error.
 
 #### Scenario: Cached token is valid
-- **WHEN** `VerifyAuthenticationToken` succeeds for the cached token
-- **THEN** the controller SHALL use the cached token for the current probe without calling `PasswordLogin`
+- **WHEN** `QueryServerState` with the cached token succeeds
+- **THEN** the controller SHALL use the cached token for the current probe, set `Authenticated=True` with reason `TokenValid`, and SHALL NOT call `PasswordLogin`
 
 #### Scenario: Cached token is expired or invalid
-- **WHEN** `VerifyAuthenticationToken` returns an error for the cached token
+- **WHEN** `QueryServerState` with the cached token returns an error
 - **THEN** the controller SHALL call `PasswordLogin` to obtain a fresh token, update the `<server-name>-auth-token` Secret, and use the new token
+
+#### Scenario: Server rejects VerifyAuthenticationToken
+- **WHEN** the game server rejects `VerifyAuthenticationToken` (for example HTTP 200 with `errorCode` `missing_params`) but accepts the cached token for `QueryServerState`
+- **THEN** the controller SHALL treat the cached token as valid and SHALL NOT call `PasswordLogin`
 
 ### Requirement: RBAC for Secrets
 The SatisfactoryServer controller SHALL have RBAC permissions to get, list, watch, create, update, and patch Secrets.
