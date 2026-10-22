@@ -117,13 +117,9 @@ func (r *SatisfactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	// 5. Reconcile headless Service.
-	if err := r.reconcileHeadlessService(ctx, server); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	// 6. Reconcile external Service.
-	if err := r.reconcileExternalService(ctx, server); err != nil {
+	// 5–6. Reconcile headless and external Services.
+	svcErr, err := r.reconcileServices(ctx, server)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -173,12 +169,25 @@ func (r *SatisfactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.R
 		r.setPodFailureCondition(ctx, server)
 	}
 
+	// 10b. A rejected external Service wins over the probe and pod failure conditions.
+	if svcErr != nil {
+		conditions.SetSatisfactoryServer(server, satisfactoryv1alpha1.SatisfactoryServerConditionTypeDegraded,
+			metav1.ConditionTrue, "ServiceInvalid", svcErr.Error())
+		conditions.SetSatisfactoryServer(server, satisfactoryv1alpha1.SatisfactoryServerConditionTypeReady,
+			metav1.ConditionFalse, "ServiceInvalid", "External Service was rejected by the API server")
+		r.Recorder.Eventf(server, nil, corev1.EventTypeWarning, "ServiceInvalid", "ReconcileService", "%s", svcErr.Error())
+	}
+
 	// 11. Update Phase.
 	r.updatePhaseFromConditions(server)
 
 	// 12. Single status update.
 	if err := r.Status().Update(ctx, server); err != nil {
 		return ctrl.Result{}, fmt.Errorf("update status: %w", err)
+	}
+	if svcErr != nil {
+		// Retry with backoff: a port collision can clear without a spec change.
+		return ctrl.Result{}, svcErr
 	}
 
 	// 13. Short requeue when server is not yet reachable.
@@ -429,6 +438,21 @@ func (r *SatisfactoryServerReconciler) reconcileStatefulSet(ctx context.Context,
 	return nil
 }
 
+// reconcileServices reconciles both Services. A rejected external Service spec (e.g. a node port
+// outside the cluster's range) is returned as svcErr to be reported in the status; err aborts the reconcile.
+func (r *SatisfactoryServerReconciler) reconcileServices(ctx context.Context, server *satisfactoryv1alpha1.SatisfactoryServer) (svcErr, err error) {
+	if err := r.reconcileHeadlessService(ctx, server); err != nil {
+		return nil, err
+	}
+	if err := r.reconcileExternalService(ctx, server); err != nil {
+		if apierrors.IsInvalid(err) {
+			return err, nil
+		}
+		return nil, err
+	}
+	return nil, nil
+}
+
 func (r *SatisfactoryServerReconciler) reconcileHeadlessService(ctx context.Context, server *satisfactoryv1alpha1.SatisfactoryServer) error {
 	desired := buildHeadlessService(server)
 	existing := &corev1.Service{}
@@ -439,6 +463,11 @@ func (r *SatisfactoryServerReconciler) reconcileHeadlessService(ctx context.Cont
 		}
 	} else if err != nil {
 		return fmt.Errorf("get headless Service: %w", err)
+	} else if !servicePortsMatch(existing.Spec.Ports, desired.Spec.Ports) {
+		existing.Spec.Ports = desired.Spec.Ports
+		if err := r.Update(ctx, existing); err != nil {
+			return fmt.Errorf("update headless Service ports: %w", err)
+		}
 	}
 	return nil
 }
@@ -456,11 +485,11 @@ func (r *SatisfactoryServerReconciler) reconcileExternalService(ctx context.Cont
 	if err != nil {
 		return fmt.Errorf("get external Service: %w", err)
 	}
-	// Update the service type if it changed.
-	if existing.Spec.Type != desired.Spec.Type {
+	if existing.Spec.Type != desired.Spec.Type || !servicePortsMatch(existing.Spec.Ports, desired.Spec.Ports) {
 		existing.Spec.Type = desired.Spec.Type
+		existing.Spec.Ports = desired.Spec.Ports
 		if err := r.Update(ctx, existing); err != nil {
-			return fmt.Errorf("update external Service type: %w", err)
+			return fmt.Errorf("update external Service: %w", err)
 		}
 	}
 	return nil

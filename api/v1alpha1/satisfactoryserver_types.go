@@ -41,7 +41,8 @@ const (
 	// SatisfactoryServerConditionTypeProgressing indicates a StatefulSet rollout is in progress.
 	SatisfactoryServerConditionTypeProgressing = "Progressing"
 	// SatisfactoryServerConditionTypeDegraded indicates the StatefulSet is ready but the
-	// game server API is unreachable or returning errors.
+	// game server API is unreachable or returning errors, the pod is crash-looping, or the
+	// API server rejected the external Service (reason ServiceInvalid).
 	SatisfactoryServerConditionTypeDegraded = "Degraded"
 	// SatisfactoryServerConditionTypeServerReachable indicates the game server HTTPS API responds.
 	SatisfactoryServerConditionTypeServerReachable = "ServerReachable"

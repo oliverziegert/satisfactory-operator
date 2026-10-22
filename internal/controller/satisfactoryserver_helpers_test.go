@@ -866,6 +866,16 @@ func TestBuildHeadlessService(t *testing.T) {
 	t.Run("OwnerReferences has exactly 1 entry with Controller=true", func(t *testing.T) {
 		assertOwnerRef(t, svc.OwnerReferences)
 	})
+
+	t.Run("NodePort server leaves node ports unset", func(t *testing.T) {
+		server := serverFixture()
+		server.Spec.ServiceType = corev1.ServiceTypeNodePort
+		for _, p := range buildHeadlessService(server).Spec.Ports {
+			if p.NodePort != 0 {
+				t.Errorf("%s nodePort = %d, want 0", p.Name, p.NodePort)
+			}
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -966,6 +976,64 @@ func TestBuildExternalService(t *testing.T) {
 		svc := buildExternalService(server)
 		assertOwnerRef(t, svc.OwnerReferences)
 	})
+
+	t.Run("NodePort pins nodePort to port", func(t *testing.T) {
+		server := serverFixture()
+		server.Spec.ServiceType = corev1.ServiceTypeNodePort
+		server.Spec.GamePort = 30777
+		server.Spec.MessagingPort = 30888
+		want := map[string]int32{"game-tcp": 30777, "game-udp": 30777, "messaging": 30888}
+		for _, p := range buildExternalService(server).Spec.Ports {
+			if p.Port != want[p.Name] || p.NodePort != want[p.Name] {
+				t.Errorf("%s port/nodePort = %d/%d, want %d/%d", p.Name, p.Port, p.NodePort, want[p.Name], want[p.Name])
+			}
+		}
+	})
+
+	t.Run("LoadBalancer leaves nodePort unset", func(t *testing.T) {
+		server := serverFixture()
+		server.Spec.ServiceType = corev1.ServiceTypeLoadBalancer
+		for _, p := range buildExternalService(server).Spec.Ports {
+			if p.NodePort != 0 {
+				t.Errorf("%s nodePort = %d, want 0", p.Name, p.NodePort)
+			}
+		}
+	})
+}
+
+func TestServicePortsMatch(t *testing.T) {
+	desired := []corev1.ServicePort{
+		{Name: "game-tcp", Protocol: corev1.ProtocolTCP, Port: 7777},
+		{Name: "messaging", Protocol: corev1.ProtocolTCP, Port: 8888},
+	}
+	pinned := []corev1.ServicePort{{Name: "game-tcp", Protocol: corev1.ProtocolTCP, Port: 30777, NodePort: 30777}}
+
+	tests := []struct {
+		name              string
+		existing, desired []corev1.ServicePort
+		want              bool
+	}{
+		{"equal", desired, desired, true},
+		{"changed port", []corev1.ServicePort{
+			{Name: "game-tcp", Protocol: corev1.ProtocolTCP, Port: 7778},
+			{Name: "messaging", Protocol: corev1.ProtocolTCP, Port: 8888},
+		}, desired, false},
+		{"allocated node port ignored", []corev1.ServicePort{
+			{Name: "game-tcp", Protocol: corev1.ProtocolTCP, Port: 7777, NodePort: 31234, TargetPort: intstrFromInt32(7777)},
+			{Name: "messaging", Protocol: corev1.ProtocolTCP, Port: 8888, NodePort: 31235, TargetPort: intstrFromInt32(8888)},
+		}, desired, true},
+		{"pinned node port differs", []corev1.ServicePort{
+			{Name: "game-tcp", Protocol: corev1.ProtocolTCP, Port: 30777, NodePort: 31234},
+		}, pinned, false},
+		{"different length", desired[:1], desired, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := servicePortsMatch(tt.existing, tt.desired); got != tt.want {
+				t.Errorf("servicePortsMatch() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
