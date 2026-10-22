@@ -321,6 +321,13 @@ func buildExternalService(server *satisfactoryv1alpha1.SatisfactoryServer) *core
 	if svcType == "" {
 		svcType = corev1.ServiceTypeLoadBalancer
 	}
+	ports := containerPortsToServicePorts(buildContainerPorts(server.Spec))
+	if svcType == corev1.ServiceTypeNodePort {
+		// Game clients connect to the ports the server advertises, so every layer must use the same number.
+		for i := range ports {
+			ports[i].NodePort = ports[i].Port
+		}
+	}
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      server.Name,
@@ -333,7 +340,25 @@ func buildExternalService(server *satisfactoryv1alpha1.SatisfactoryServer) *core
 		Spec: corev1.ServiceSpec{
 			Type:     svcType,
 			Selector: labels,
-			Ports:    containerPortsToServicePorts(buildContainerPorts(server.Spec)),
+			Ports:    ports,
 		},
 	}
+}
+
+// servicePortsMatch reports whether existing has the operator-owned fields of desired.
+// API-server-defaulted fields (TargetPort, an allocated NodePort) are ignored.
+func servicePortsMatch(existing, desired []corev1.ServicePort) bool {
+	if len(existing) != len(desired) {
+		return false
+	}
+	for i, d := range desired {
+		e := existing[i]
+		if e.Name != d.Name || e.Protocol != d.Protocol || e.Port != d.Port {
+			return false
+		}
+		if d.NodePort != 0 && e.NodePort != d.NodePort {
+			return false
+		}
+	}
+	return true
 }

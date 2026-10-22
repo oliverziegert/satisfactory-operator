@@ -78,6 +78,19 @@ spec:
 
 Every field is documented in the samples under [`config/samples/`](config/samples/), or run `kubectl explain satisfactoryserver.spec`.
 
+### NodePort
+
+Players can only join when the container port, Service port and node port are identical, because the game advertises the ports it listens on. With `serviceType: NodePort`, the operator therefore uses `gamePort` and `messagingPort` unchanged as container, Service and node port. Both must lie in the cluster's node-port range (default 30000–32767), so set them explicitly:
+
+```yaml
+spec:
+  serviceType: NodePort
+  gamePort: 30777
+  messagingPort: 30888
+```
+
+A port outside the range shows up as `Degraded` with reason `ServiceInvalid` and the API server's message. The operator owns the Service ports and reverts manual patches on the next reconcile.
+
 ## Uninstall
 
 ```sh

@@ -17,6 +17,12 @@ spec:
   # Network exposure: LoadBalancer (default), NodePort, or ClusterIP
   serviceType: LoadBalancer
 
+  # With NodePort, the game ports are also used as node ports and must lie in the
+  # cluster's node-port range (default 30000-32767):
+  # serviceType: NodePort
+  # gamePort: 30777
+  # messagingPort: 30888
+
   # Retain the /config PVC when this resource is deleted (default: true).
   # Set to false to also delete save game data on deletion.
   retainPVCOnDelete: true
