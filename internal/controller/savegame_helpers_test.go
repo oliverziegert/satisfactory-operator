@@ -71,8 +71,8 @@ func (f *fakeGameAPI) handler() http.HandlerFunc {
 				return
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"authenticationToken": "tok"}})
-		case "VerifyAuthenticationToken":
-			w.WriteHeader(http.StatusNoContent)
+		case "QueryServerState":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"serverGameState": map[string]any{}}})
 		case "SaveGame":
 			if f.failSave {
 				w.WriteHeader(http.StatusInternalServerError)

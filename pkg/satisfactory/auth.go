@@ -36,13 +36,6 @@ func (c *Client) HealthCheck(ctx context.Context, clientCustomData string) (*Hea
 	return &result, nil
 }
 
-// VerifyAuthenticationToken verifies the current bearer token is still valid.
-// Returns nil on success (HTTP 204), or *APIError on failure.
-func (c *Client) VerifyAuthenticationToken(ctx context.Context) error {
-	body := apiRequest{Function: "VerifyAuthenticationToken"}
-	return c.doRequest(ctx, "VerifyAuthenticationToken", body, nil)
-}
-
 // PasswordlessLogin attempts a passwordless login to the server.
 // This endpoint requires no authentication and is possible only on unclaimed servers
 // or when no Client Protection Password is set.

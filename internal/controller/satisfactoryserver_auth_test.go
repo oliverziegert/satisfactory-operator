@@ -226,10 +226,6 @@ func TestAuthenticateClient_SuccessfulLogin(t *testing.T) {
 	ts := newTLSTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Query().Get("function") {
-		case "VerifyAuthenticationToken":
-			// No cached token yet — this shouldn't be called, but handle gracefully.
-			w.WriteHeader(http.StatusForbidden)
-			_, _ = w.Write([]byte(`{"errorCode":"token_invalid"}`))
 		case "PasswordLogin":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"data": map[string]any{"authenticationToken": "fresh-token"},
@@ -258,12 +254,23 @@ func TestAuthenticateClient_SuccessfulLogin(t *testing.T) {
 }
 
 func TestAuthenticateClient_CachedTokenValid(t *testing.T) {
-	// Test server accepts the cached token as valid.
+	// Server accepts the cached token for QueryServerState but rejects
+	// VerifyAuthenticationToken the way v1.9.10 does (#43).
+	loginCalled := false
 	ts := newTLSTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Query().Get("function") {
+		case "QueryServerState":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": map[string]any{"serverGameState": map[string]any{}},
+			})
 		case "VerifyAuthenticationToken":
-			// Return 204 — token is valid.
-			w.WriteHeader(http.StatusNoContent)
+			_, _ = w.Write([]byte(`{"errorCode":"missing_params","errorMessage":"Missing parameters"}`))
+		case "PasswordLogin":
+			loginCalled = true
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": map[string]any{"authenticationToken": "fresh-token"},
+			})
 		default:
 			w.WriteHeader(http.StatusBadRequest)
 		}
@@ -286,17 +293,22 @@ func TestAuthenticateClient_CachedTokenValid(t *testing.T) {
 	r.authenticateClient(context.Background(), server, c)
 
 	checkConditionTrue(t, server, satisfactoryv1alpha1.SatisfactoryServerConditionTypeAuthenticated)
+	if loginCalled {
+		t.Error("expected PasswordLogin not to be called for a valid cached token")
+	}
 }
 
 func TestAuthenticateClient_CachedTokenExpired(t *testing.T) {
 	// Cached token fails verification; re-authenticates successfully.
+	loginCalled := false
 	ts := newTLSTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Query().Get("function") {
-		case "VerifyAuthenticationToken":
-			w.WriteHeader(http.StatusForbidden)
-			_, _ = w.Write([]byte(`{"errorCode":"token_expired"}`))
+		case "QueryServerState":
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"errorCode":"token_validation_failed"}`))
 		case "PasswordLogin":
+			loginCalled = true
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"data": map[string]any{"authenticationToken": "new-token"},
 			})
@@ -326,6 +338,16 @@ func TestAuthenticateClient_CachedTokenExpired(t *testing.T) {
 	r.authenticateClient(context.Background(), server, c)
 
 	checkConditionTrue(t, server, satisfactoryv1alpha1.SatisfactoryServerConditionTypeAuthenticated)
+	if !loginCalled {
+		t.Error("expected PasswordLogin to be called for a rejected cached token")
+	}
+	token, err := r.getCachedAuthToken(context.Background(), server)
+	if err != nil {
+		t.Fatalf("read cached token: %v", err)
+	}
+	if token != "new-token" {
+		t.Errorf("expected cached token %q, got %q", "new-token", token)
+	}
 }
 
 func TestAuthenticateClient_LoginFailed(t *testing.T) {

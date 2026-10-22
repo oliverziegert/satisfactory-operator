@@ -123,7 +123,7 @@ func (r *SatisfactoryServerReconciler) cacheAuthToken(ctx context.Context, serve
 // authenticateClient tries to authenticate the given client with the game server API.
 //
 // Flow:
-//  1. If a cached token exists, verify it — use it if valid.
+//  1. If a cached token exists, verify it with an authenticated QueryServerState call — use it if valid.
 //  2. If no valid cached token, read the admin password from adminPasswordSecretRef.
 //  3. Call PasswordLogin; cache the resulting token.
 //
@@ -144,7 +144,9 @@ func (r *SatisfactoryServerReconciler) authenticateClient(
 	}
 	if cachedToken != "" {
 		c.SetAuthToken(cachedToken)
-		if verifyErr := c.VerifyAuthenticationToken(ctx); verifyErr == nil {
+		// VerifyAuthenticationToken rejects valid tokens on v1.9.10 (#43); any authenticated call proves the token.
+		_, verifyErr := c.QueryServerState(ctx)
+		if verifyErr == nil {
 			conditions.SetSatisfactoryServer(server,
 				satisfactoryv1alpha1.SatisfactoryServerConditionTypeAuthenticated,
 				metav1.ConditionTrue, "TokenValid", "Cached authentication token is valid")
@@ -152,7 +154,7 @@ func (r *SatisfactoryServerReconciler) authenticateClient(
 		}
 		// Cached token is invalid — clear it and fall through to re-authenticate.
 		c.SetAuthToken("")
-		log.Info("Cached auth token is invalid, re-authenticating")
+		log.Info("Cached auth token is invalid, re-authenticating", "error", verifyErr)
 	}
 
 	// 2. Read admin password from referenced Secret.
