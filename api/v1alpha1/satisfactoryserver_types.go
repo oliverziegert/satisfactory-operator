@@ -252,13 +252,10 @@ type SatisfactoryServerStatus struct {
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// ServerVersion is the version of the Satisfactory Dedicated Server currently running.
-	// +optional
-	ServerVersion string `json:"serverVersion,omitempty"`
-
 	// ConnectedPlayers is the number of players currently connected to the server.
+	// Unset when the count is unknown (pod not ready, API unreachable or not authenticated).
 	// +optional
-	ConnectedPlayers int32 `json:"connectedPlayers,omitempty"`
+	ConnectedPlayers *int32 `json:"connectedPlayers,omitempty"`
 
 	// LastSaveTime is the timestamp of the most recent save operation.
 	// +optional

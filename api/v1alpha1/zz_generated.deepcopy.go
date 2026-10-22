@@ -337,6 +337,11 @@ func (in *SatisfactoryServerStatus) DeepCopyInto(out *SatisfactoryServerStatus) 
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.ConnectedPlayers != nil {
+		in, out := &in.ConnectedPlayers, &out.ConnectedPlayers
+		*out = new(int32)
+		**out = **in
+	}
 	if in.LastSaveTime != nil {
 		in, out := &in.LastSaveTime, &out.LastSaveTime
 		*out = (*in).DeepCopy()

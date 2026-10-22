@@ -62,7 +62,7 @@ The SatisfactoryServer controller SHALL implement the `Reconcile` method with a 
 
 #### Scenario: Status fields populated from game API
 - **WHEN** `QueryServerState` returns successfully
-- **THEN** the controller SHALL populate `status.connectedPlayers` and `status.serverVersion` from the response
+- **THEN** the controller SHALL populate `status.connectedPlayers` from the response
 
 ### Requirement: RBAC configuration
 The operator SHALL define RBAC rules granting least-privilege access to manage Pods, Services, PersistentVolumeClaims, ConfigMaps, and SatisfactoryServer custom resources.

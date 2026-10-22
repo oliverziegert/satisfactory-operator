@@ -27,6 +27,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	satisfactoryv1alpha1 "github.com/oliverziegert/satisfactory-operator/api/v1alpha1"
 	satisfactory "github.com/oliverziegert/satisfactory-operator/pkg/satisfactory"
@@ -88,8 +89,23 @@ func TestProbeGameServer_Success(t *testing.T) {
 	if result.ActiveSessionName != "MyWorld" {
 		t.Errorf("expected ActiveSessionName=MyWorld, got %s", result.ActiveSessionName)
 	}
-	if result.NumPlayers != 2 {
-		t.Errorf("expected NumPlayers=2, got %d", result.NumPlayers)
+	if result.NumPlayers == nil || *result.NumPlayers != 2 {
+		t.Errorf("expected NumPlayers=2, got %v", result.NumPlayers)
+	}
+}
+
+func TestProbeGameServer_NoPlayers(t *testing.T) {
+	ts := newTLSTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"serverGameState":{"activeSessionName":"MyWorld","numConnectedPlayers":0}}}`))
+	}))
+	defer ts.Close()
+
+	c := satisfactory.NewClient(ts.URL, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec
+	rec := &SatisfactoryServerReconciler{}
+	result := rec.probeGameServer(context.Background(), c)
+	if result.NumPlayers == nil || *result.NumPlayers != 0 {
+		t.Errorf("expected NumPlayers=0, got %v", result.NumPlayers)
 	}
 }
 
@@ -120,6 +136,9 @@ func TestProbeGameServer_AuthError(t *testing.T) {
 	if result.Claimed {
 		t.Error("expected Claimed=false on auth error")
 	}
+	if result.NumPlayers != nil {
+		t.Errorf("expected NumPlayers=nil on auth error, got %d", *result.NumPlayers)
+	}
 }
 
 func TestProbeGameServer_ConnectionFailure(t *testing.T) {
@@ -129,6 +148,9 @@ func TestProbeGameServer_ConnectionFailure(t *testing.T) {
 	result := rec.probeGameServer(context.Background(), c)
 	if result.Reachable {
 		t.Error("expected Reachable=false on connection failure")
+	}
+	if result.NumPlayers != nil {
+		t.Errorf("expected NumPlayers=nil on connection failure, got %d", *result.NumPlayers)
 	}
 }
 
@@ -222,9 +244,14 @@ func TestPodFailure(t *testing.T) {
 
 func TestSetGameConditions_NilProbe(t *testing.T) {
 	server := &satisfactoryv1alpha1.SatisfactoryServer{}
+	server.Status.ConnectedPlayers = ptr.To(int32(3)) // from an earlier probe
 	ss := &appsv1.StatefulSet{}
 	rec := &SatisfactoryServerReconciler{}
 	rec.setGameConditions(server, ss, nil)
+
+	if server.Status.ConnectedPlayers != nil {
+		t.Errorf("expected ConnectedPlayers cleared, got %d", *server.Status.ConnectedPlayers)
+	}
 
 	checkConditionFalse(t, server, satisfactoryv1alpha1.SatisfactoryServerConditionTypeReady)
 	checkConditionFalse(t, server, satisfactoryv1alpha1.SatisfactoryServerConditionTypeServerReachable)
@@ -244,7 +271,7 @@ func TestSetGameConditions_Reachable_WorldLoaded(t *testing.T) {
 		Reachable:         true,
 		Claimed:           true,
 		ActiveSessionName: "World1",
-		NumPlayers:        3,
+		NumPlayers:        ptr.To(int32(3)),
 	}
 	rec := &SatisfactoryServerReconciler{}
 	rec.setGameConditions(server, ss, probe)
@@ -255,8 +282,8 @@ func TestSetGameConditions_Reachable_WorldLoaded(t *testing.T) {
 	checkConditionTrue(t, server, satisfactoryv1alpha1.SatisfactoryServerConditionTypeServerClaimed)
 	checkConditionFalse(t, server, satisfactoryv1alpha1.SatisfactoryServerConditionTypeDegraded)
 
-	if server.Status.ConnectedPlayers != 3 {
-		t.Errorf("expected ConnectedPlayers=3, got %d", server.Status.ConnectedPlayers)
+	if server.Status.ConnectedPlayers == nil || *server.Status.ConnectedPlayers != 3 {
+		t.Errorf("expected ConnectedPlayers=3, got %v", server.Status.ConnectedPlayers)
 	}
 }
 

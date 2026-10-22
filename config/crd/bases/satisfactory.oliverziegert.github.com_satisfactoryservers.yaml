@@ -693,8 +693,9 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               connectedPlayers:
-                description: ConnectedPlayers is the number of players currently connected
-                  to the server.
+                description: |-
+                  ConnectedPlayers is the number of players currently connected to the server.
+                  Unset when the count is unknown (pod not ready, API unreachable or not authenticated).
                 format: int32
                 type: integer
               lastSaveTime:
@@ -709,10 +710,6 @@ spec:
                 - Running
                 - Updating
                 - Error
-                type: string
-              serverVersion:
-                description: ServerVersion is the version of the Satisfactory Dedicated
-                  Server currently running.
                 type: string
             type: object
         type: object

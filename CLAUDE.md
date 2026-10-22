@@ -56,7 +56,7 @@ make undeploy
 1. Manages finalizer for PVC cleanup on deletion (based on `retainPVCOnDelete`)
 2. Reconciles StatefulSet, headless Service, external Service (helpers in `satisfactoryserver_helpers.go`)
 3. Authenticates with the admin password from `adminPasswordSecretRef` and caches the token in a managed Secret `<name>-auth-token` (`satisfactoryserver_auth.go`)
-4. Probes the game server HTTPS API (port 7777 by default) for reachability, claim status, world load state, version and player count
+4. Probes the game server HTTPS API (port 7777 by default) for reachability, claim status, world load state and player count
 5. Auto-claims an unclaimed server unless `autoClaimDisabled` (`satisfactoryserver_claim.go`)
 6. Sets 7 condition types: Ready, Progressing, Degraded, ServerReachable, ServerClaimed, WorldLoaded, Authenticated
 7. Derives Phase (Pending/Running/Updating/Error) from conditions

@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -42,13 +43,16 @@ import (
 
 const satisfactoryServerFinalizer = "satisfactory.oliverziegert.github.com/finalizer"
 
+// statusPollInterval is how often a reconciled server is re-probed, since players joining
+// changes no watched object.
+const statusPollInterval = 60 * time.Second
+
 // probeResult holds the structured outcome of a game server API probe.
 type probeResult struct {
 	Reachable         bool
 	Claimed           bool
 	ActiveSessionName string
-	NumPlayers        int32
-	ServerVersion     string
+	NumPlayers        *int32 // nil when QueryServerState failed
 }
 
 // SatisfactoryServerReconciler reconciles a SatisfactoryServer object
@@ -201,7 +205,7 @@ func (r *SatisfactoryServerReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: statusPollInterval}, nil
 }
 
 // setPodFailureCondition sets Degraded=True when the server's pod is crash-looping or can't pull its image.
@@ -297,7 +301,7 @@ func (r *SatisfactoryServerReconciler) probeGameServer(ctx context.Context, c *s
 		Reachable:         true,
 		Claimed:           isClaimed(ctx, c),
 		ActiveSessionName: state.ActiveSessionName,
-		NumPlayers:        int32(state.NumConnectedPlayers),
+		NumPlayers:        ptr.To(int32(state.NumConnectedPlayers)),
 	}
 }
 
@@ -331,6 +335,7 @@ func (r *SatisfactoryServerReconciler) setGameConditions(
 			metav1.ConditionFalse, "StatefulSetNotReady", "Waiting for StatefulSet to have ready replicas")
 		// Clear Authenticated — no probe was attempted this cycle.
 		conditions.Remove(&server.Status.Conditions, satisfactoryv1alpha1.SatisfactoryServerConditionTypeAuthenticated)
+		server.Status.ConnectedPlayers = nil
 		return
 	}
 
@@ -372,9 +377,6 @@ func (r *SatisfactoryServerReconciler) setGameConditions(
 
 	// Populate status fields from probe.
 	server.Status.ConnectedPlayers = probe.NumPlayers
-	if probe.ServerVersion != "" {
-		server.Status.ServerVersion = probe.ServerVersion
-	}
 
 	// Aggregate Ready: StatefulSet ready AND ServerReachable AND WorldLoaded.
 	if ssReady &&
