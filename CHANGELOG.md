@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.3](https://github.com/oliverziegert/satisfactory-operator/compare/v0.1.2...v0.1.3) (2026-10-22)
+
+
+### Bug Fixes
+
+* pin NodePort ports to the game ports and reconcile Service ports ([#39](https://github.com/oliverziegert/satisfactory-operator/issues/39)) ([9bd49c5](https://github.com/oliverziegert/satisfactory-operator/commit/9bd49c525aded6b9ded290700cdc9e230718035a))
+* re-probe running servers and report unknown player count ([#42](https://github.com/oliverziegert/satisfactory-operator/issues/42)) ([9a126f3](https://github.com/oliverziegert/satisfactory-operator/commit/9a126f3d0f69b16325c687df83507ec519c1d2ab)), closes [#40](https://github.com/oliverziegert/satisfactory-operator/issues/40)
+
 ## [0.1.2](https://github.com/oliverziegert/satisfactory-operator/compare/v0.1.1...v0.1.2) (2026-10-21)
 
 
