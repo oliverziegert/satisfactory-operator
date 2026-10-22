@@ -27,11 +27,15 @@ The client SHALL support setting a bearer token for authenticated API calls. The
 - **THEN** the request SHALL be sent without an `Authorization` header
 
 ### Requirement: Structured error handling
-The client SHALL define an `APIError` type that contains `ErrorCode` (string), `ErrorMessage` (string), and `ErrorData` (map) fields. Non-success HTTP responses with JSON bodies SHALL be parsed into `APIError`.
+The client SHALL define an `APIError` type that contains `ErrorCode` (string), `ErrorMessage` (string), and `ErrorData` (map) fields. Non-success HTTP responses with JSON bodies SHALL be parsed into `APIError`. Success (2xx) responses whose JSON body contains a non-empty `errorCode` SHALL also be returned as `APIError`.
 
 #### Scenario: API returns error response
 - **WHEN** an API call receives a non-2xx response with a JSON body containing `errorCode`
 - **THEN** the method SHALL return an `*APIError` that implements the `error` interface
+
+#### Scenario: API returns error with success status
+- **WHEN** an API call receives an HTTP 200 response with a JSON body containing `errorCode` (for example `missing_params`)
+- **THEN** the method SHALL return an `*APIError` carrying that `ErrorCode` and `ErrorMessage`
 
 #### Scenario: Network or non-JSON error
 - **WHEN** an API call fails due to network error or receives a non-JSON response
@@ -43,17 +47,6 @@ The client SHALL provide a `HealthCheck(ctx, clientCustomData)` method that call
 #### Scenario: Healthy server
 - **WHEN** `HealthCheck` is called and the server is running normally
 - **THEN** the response SHALL contain `Health: "healthy"` and `ServerCustomData` fields
-
-### Requirement: VerifyAuthenticationToken endpoint
-The client SHALL provide a `VerifyAuthenticationToken(ctx)` method that verifies the current bearer token is still valid.
-
-#### Scenario: Valid token
-- **WHEN** `VerifyAuthenticationToken` is called with a valid token set
-- **THEN** the method SHALL return `nil` error (HTTP 204)
-
-#### Scenario: Invalid token
-- **WHEN** `VerifyAuthenticationToken` is called with an expired or invalid token
-- **THEN** the method SHALL return an `*APIError` with HTTP 401
 
 ### Requirement: PasswordlessLogin endpoint
 The client SHALL provide a `PasswordlessLogin(ctx, minimumPrivilegeLevel)` method that attempts passwordless authentication and returns an authentication token on success.

@@ -17,7 +17,11 @@ limitations under the License.
 package satisfactory
 
 import (
+	"context"
 	"crypto/tls"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -242,5 +246,32 @@ func TestSetAuthToken_ClearsExisting(t *testing.T) {
 
 	if c.authToken != "" {
 		t.Errorf("authToken = %q after clearing, want empty string", c.authToken)
+	}
+}
+
+// ----------------------------------------------------------------------------
+// Client.parseResponse
+// ----------------------------------------------------------------------------
+
+// TestParseResponse_ErrorCodeWithSuccessStatus verifies that an HTTP 200 body
+// carrying an errorCode is returned as *APIError instead of success.
+func TestParseResponse_ErrorCodeWithSuccessStatus(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errorCode":"missing_params","errorMessage":"Missing parameters"}`))
+	}))
+	defer ts.Close()
+
+	c := NewClient(ts.URL, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec
+	_, err := c.QueryServerState(context.Background())
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T: %v", err, err)
+	}
+	if apiErr.ErrorCode != "missing_params" || apiErr.ErrorMessage != "Missing parameters" {
+		t.Errorf("got ErrorCode=%q ErrorMessage=%q", apiErr.ErrorCode, apiErr.ErrorMessage)
 	}
 }
