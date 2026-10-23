@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.5](https://github.com/oliverziegert/satisfactory-operator/compare/v0.1.4...v0.1.5) (2026-10-23)
+
+
+### Bug Fixes
+
+* **deps:** update gcr.io/distroless/static:nonroot docker digest to 18f4cc2 ([#49](https://github.com/oliverziegert/satisfactory-operator/issues/49)) ([e1a1556](https://github.com/oliverziegert/satisfactory-operator/commit/e1a1556fc788450bc320ad96fc27077c45e55b9f))
+* **deps:** update k8s.io/utils digest to ca04ba5 ([#46](https://github.com/oliverziegert/satisfactory-operator/issues/46)) ([54b105f](https://github.com/oliverziegert/satisfactory-operator/commit/54b105fded5f8f65727dff78e057eafd1cee555a))
+
+
+### Miscellaneous Chores
+
+* **deps:** update docker/login-action digest to 81c6f93 ([#48](https://github.com/oliverziegert/satisfactory-operator/issues/48)) ([c4e8d0b](https://github.com/oliverziegert/satisfactory-operator/commit/c4e8d0b98df1e76ce38bd910ebc751901907551d))
+
 ## [0.1.4](https://github.com/oliverziegert/satisfactory-operator/compare/v0.1.3...v0.1.4) (2026-10-22)
 
 
