@@ -17,7 +17,24 @@ The game server image defaults to the community image [`ghcr.io/robtme/satisfact
 
 ## Install
 
-Install the CRDs and the operator (multi-arch image, `linux/amd64` and `linux/arm64`) from the latest release:
+Install the operator (multi-arch image, `linux/amd64` and `linux/arm64`) with Helm from the latest release:
+
+```sh
+# x-release-please-start-version
+helm install satisfactory-operator oci://ghcr.io/oliverziegert/charts/satisfactory-operator --version 0.1.4 \
+  -n satisfactory-operator-system --create-namespace
+# x-release-please-end
+```
+
+Then create a server as in the last step of the quick start below. See `helm show values oci://ghcr.io/oliverziegert/charts/satisfactory-operator` for the image, resources, scheduling, metrics, ServiceMonitor and NetworkPolicy settings.
+
+- **CRDs** are installed and upgraded with the chart (`crd.enabled`) and are kept on `helm uninstall` (`crd.keep`), so your servers survive an uninstall.
+- **Namespace mode**: `--set watchNamespaces='{games}'` makes the operator watch only the listed namespaces and replaces its cluster-wide RBAC with a RoleBinding per namespace, plus cluster access to `ClusterPolicy` only. The namespaces must exist before you install.
+- **ClusterPolicy**: `--set clusterPolicy.enabled=true` plus `clusterPolicy.spec.*` creates one `ClusterPolicy` with that spec. It is created as a Helm hook after the CRDs exist and replaced on every upgrade. Helm doesn't track hooks, so `helm uninstall` leaves the policy in place; delete it with `kubectl delete clusterpolicy default`.
+
+### Plain manifests
+
+Without Helm, install the CRDs and a cluster-wide operator from the release manifest:
 
 ```sh
 # x-release-please-start-version
@@ -25,7 +42,30 @@ kubectl apply -f https://github.com/oliverziegert/satisfactory-operator/releases
 # x-release-please-end
 ```
 
-Then create a server as in the last step of the quick start below.
+### Migrate from install.yaml to Helm
+
+> [!WARNING]
+> Never run `kubectl delete -f install.yaml`. It deletes the CRDs, and with them every `SatisfactoryServer`, `SaveGame` and `ClusterPolicy` in the cluster.
+
+Delete the operator objects by name, hand the CRDs over to Helm, then install the chart. Your servers keep running while no operator is installed:
+
+```sh
+kubectl delete namespace satisfactory-operator-system
+kubectl delete clusterrolebinding satisfactory-operator-manager-rolebinding satisfactory-operator-metrics-auth-rolebinding
+kubectl delete clusterrole satisfactory-operator-manager-role satisfactory-operator-metrics-auth-role satisfactory-operator-metrics-reader \
+  satisfactory-operator-{clusterpolicy,satisfactoryserver,savegame}-{admin,editor,viewer}-role
+
+for crd in clusterpolicies satisfactoryservers savegames; do
+  kubectl label crd $crd.satisfactory.oliverziegert.github.com app.kubernetes.io/managed-by=Helm --overwrite
+  kubectl annotate crd $crd.satisfactory.oliverziegert.github.com --overwrite \
+    meta.helm.sh/release-name=satisfactory-operator meta.helm.sh/release-namespace=satisfactory-operator-system
+done
+
+helm install satisfactory-operator oci://ghcr.io/oliverziegert/charts/satisfactory-operator --version <version> \
+  -n satisfactory-operator-system --create-namespace
+```
+
+The release name and namespace must match the annotations. To roll back, `helm uninstall` (the CRDs and servers are kept) and apply `install.yaml` again.
 
 ## Quick start (from source)
 
@@ -99,14 +139,16 @@ By default the operator watches all namespaces. To limit it to some, pass `--wat
 kubectl -n satisfactory-operator-system set env deployment/satisfactory-operator-controller-manager WATCH_NAMESPACES=games
 ```
 
-`SatisfactoryServer` and `SaveGame` resources in other namespaces are ignored: the operator creates nothing for them and doesn't update their status. `ClusterPolicy` is still watched cluster-wide, but its defaults and limits only apply to servers in watched namespaces. The listed namespaces must exist. The bundled RBAC stays cluster-wide, so a namespace-scoped install needs its own Roles.
+`SatisfactoryServer` and `SaveGame` resources in other namespaces are ignored: the operator creates nothing for them and doesn't update their status. `ClusterPolicy` is still watched cluster-wide, but its defaults and limits only apply to servers in watched namespaces. The listed namespaces must exist. The Helm chart's `watchNamespaces` value sets the flag and scopes the RBAC to those namespaces (see [Install](#install)). The RBAC in `install.yaml` stays cluster-wide.
 
 ## Uninstall
 
 ```sh
-kubectl delete satisfactoryservers,savegames --all
-make undeploy
+kubectl delete satisfactoryservers,savegames --all -A
+helm uninstall satisfactory-operator -n satisfactory-operator-system   # or: make undeploy for a source install
 ```
+
+The chart keeps the CRDs; delete them with `kubectl delete crd clusterpolicies.satisfactory.oliverziegert.github.com satisfactoryservers.satisfactory.oliverziegert.github.com savegames.satisfactory.oliverziegert.github.com` once no servers are left.
 
 PVCs with save data stay behind unless the servers set `retainPVCOnDelete: false`.
 
