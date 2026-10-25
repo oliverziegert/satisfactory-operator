@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/oliverziegert/satisfactory-operator/compare/v0.2.0...v0.2.1) (2026-10-25)
+
+
+### Bug Fixes
+
+* **chart:** set appVersion on release ([#54](https://github.com/oliverziegert/satisfactory-operator/issues/54)) ([afa2e88](https://github.com/oliverziegert/satisfactory-operator/commit/afa2e886e958ac0ee265bcaf835377e65a5b2ed8))
+
 ## [0.2.0](https://github.com/oliverziegert/satisfactory-operator/compare/v0.1.4...v0.2.0) (2026-10-25)
 
 
