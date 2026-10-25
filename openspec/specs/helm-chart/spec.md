@@ -1,11 +1,9 @@
-# Spec Delta
+# helm-chart Specification
 
 ## Purpose
-
 Lets users install, configure and upgrade the operator with Helm, including GitOps tools, in either cluster-wide or namespace-scoped mode.
 
-## ADDED Requirements
-
+## Requirements
 ### Requirement: Operator installation via Helm
 The chart SHALL install the CRDs, RBAC, ServiceAccount and controller Deployment so that the operator reconciles resources after `helm install` with default values. The chart SHALL NOT create `SatisfactoryServer`, `SaveGame` or Secret resources for game servers.
 
@@ -14,14 +12,14 @@ The chart SHALL install the CRDs, RBAC, ServiceAccount and controller Deployment
 - **THEN** the controller Deployment runs `ghcr.io/oliverziegert/satisfactory-operator:vX.Y.Z` and reconciles a `SatisfactoryServer` in any namespace
 
 ### Requirement: Configurable values
-The chart SHALL let users set the image repository and tag, image pull secrets, resources, node selector, tolerations, affinity, security contexts, and toggles for metrics, ServiceMonitor and NetworkPolicy. The image tag SHALL default to the chart's `appVersion`.
+The chart SHALL let users set, under `manager`, the image repository and tag, image pull secrets, resources, node selector, tolerations, affinity and security contexts, plus top-level toggles for metrics, ServiceMonitor (`prometheus`) and NetworkPolicy. The image tag SHALL default to the chart's `appVersion`.
 
 #### Scenario: Custom resources and scheduling
-- **WHEN** a user sets `resources.limits.memory=256Mi` and `nodeSelector.kubernetes\.io/arch=arm64`
+- **WHEN** a user sets `manager.resources.limits.memory=256Mi` and `manager.nodeSelector.kubernetes\.io/arch=arm64`
 - **THEN** the rendered Deployment carries that memory limit and node selector
 
 ### Requirement: CRD lifecycle
-With `crds.install` enabled (default), CRDs SHALL be created on install and updated on `helm upgrade`. With `crds.keep` enabled (default), `helm uninstall` SHALL NOT delete the CRDs or any custom resources.
+With `crd.enabled` (default), CRDs SHALL be created on install and updated on `helm upgrade`. With `crd.keep` (default), `helm uninstall` SHALL NOT delete the CRDs or any custom resources.
 
 #### Scenario: Schema change on upgrade
 - **WHEN** a new chart version adds a field to a CRD and the user runs `helm upgrade`
@@ -39,7 +37,7 @@ With `clusterPolicy.enabled: true`, the chart SHALL create one `ClusterPolicy` w
 - **THEN** the install succeeds in one `helm install` and a `ClusterPolicy` with `maxServersPerNamespace: 2` exists
 
 ### Requirement: Namespace-scoped mode
-With `watchNamespaces` empty, the chart SHALL render cluster-wide RBAC. With a list, the chart SHALL render a Role and RoleBinding per listed namespace, a ClusterRole granting access only to `clusterpolicies` and their status, and configure the operator to watch exactly those namespaces. The chart SHALL NOT create the listed namespaces.
+With `watchNamespaces` empty, the chart SHALL render cluster-wide RBAC. With a list, it SHALL grant the manager's rules per listed namespace through RoleBindings and configure the operator to watch exactly those namespaces. Cluster-level permissions SHALL be limited to `clusterpolicies` and their subresources, plus the TokenReview and SubjectAccessReview creation that secure metrics need. The chart SHALL NOT create the listed namespaces.
 
 #### Scenario: Scoped install
 - **WHEN** a user installs with `watchNamespaces={games}`

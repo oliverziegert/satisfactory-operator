@@ -42,11 +42,15 @@ The ClusterPolicy controller SHALL implement the `Reconcile` method with a full 
 - **THEN** the controller SHALL list all SatisfactoryServer resources across all namespaces, apply defaults to servers with zero-valued fields, validate image and namespace constraints, set `Enforced` and `Ready` conditions, and populate `serversGoverned` and `lastAppliedTime`
 
 ### Requirement: ClusterPolicy RBAC configuration
-The operator SHALL define cluster-level RBAC rules for the ClusterPolicy controller granting access to manage ClusterPolicy custom resources, read and patch SatisfactoryServer resources across all namespaces, and create Events.
+The operator SHALL define cluster-level RBAC rules for the ClusterPolicy controller granting access to manage ClusterPolicy custom resources, read and patch SatisfactoryServer resources across all namespaces, and create Events. In namespace-scoped mode, the cluster-level rules SHALL be limited to ClusterPolicy resources and their status (plus the metrics authentication rules while secure metrics are enabled), and the SatisfactoryServer and Event rules SHALL be granted per watched namespace.
 
 #### Scenario: RBAC markers
 - **WHEN** the controller source code is processed by controller-gen
 - **THEN** ClusterRole RBAC rules SHALL include `patch` verb for SatisfactoryServer resources and `create` verb for Events
+
+#### Scenario: Namespace-scoped RBAC
+- **WHEN** the operator is installed with watch namespaces `games`
+- **THEN** its only cluster-level permissions are on `clusterpolicies` and its subresources, plus TokenReview and SubjectAccessReview creation for secure metrics, and it can patch SatisfactoryServer resources and create Events in `games` only
 
 ### Requirement: ClusterPolicy Enforced condition
 The `Enforced` condition SHALL reflect whether all governed servers comply with the policy constraints.
