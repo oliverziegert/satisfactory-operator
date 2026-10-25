@@ -1,0 +1,14 @@
+apiVersion: v2
+name: satisfactory-operator
+description: A Helm chart to distribute satisfactory-operator
+type: application
+
+version: 0.1.4 # x-release-please-version
+appVersion: "v0.1.4" # x-release-please-version
+
+keywords:
+  - kubernetes
+  - operator
+
+annotations:
+  kubebuilder.io/generated-by: kubebuilder

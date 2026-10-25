@@ -104,3 +104,26 @@ jobs:
           bin/kustomize build config/default > dist/install.yaml
           grep -q "image: ${IMAGE}:${TAG}$" dist/install.yaml
           gh release upload "${TAG}" dist/install.yaml
+
+      # dist/chart/Chart.yaml already carries this release's version and appVersion.
+      - name: Push Helm chart
+        id: chart
+        env:
+          CHART_REPO: oci://ghcr.io/${{ github.repository_owner }}/charts
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          grep -q "^appVersion: \"${TAG}\"" dist/chart/Chart.yaml
+          echo "${GH_TOKEN}" | helm registry login ghcr.io -u "${ACTOR}" --password-stdin
+          helm package dist/chart -d dist
+          helm push "dist/satisfactory-operator-${TAG#v}.tgz" "${CHART_REPO}" 2>&1 | tee dist/push.log
+          digest=$(awk '/^Digest:/ {print $2}' dist/push.log)
+          test -n "${digest}"
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+
+      - name: Attest chart provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/charts/satisfactory-operator
+          subject-digest: ${{ steps.chart.outputs.digest }}
+          push-to-registry: true

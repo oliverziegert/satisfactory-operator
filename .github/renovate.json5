@@ -37,10 +37,11 @@
       dependencyDashboardApproval: true,
     },
     {
-      description: "Operator SDK scaffold tools are upgraded manually",
+      description: "Scaffold tools are upgraded manually (kubebuilder regenerates the Helm chart)",
       matchPackageNames: [
         "operator-framework/operator-sdk",
         "operator-framework/operator-registry",
+        "sigs.k8s.io/kubebuilder/v4",
       ],
       dependencyDashboardApproval: true,
     },

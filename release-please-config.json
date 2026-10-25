@@ -17,7 +17,7 @@
         { "type": "build", "section": "Build System", "hidden": true },
         { "type": "ci", "section": "Continuous Integration", "hidden": true }
       ],
-      "extra-files": ["Makefile", "config/manager/kustomization.yaml", "README.md"]
+      "extra-files": ["Makefile", "config/manager/kustomization.yaml", "README.md", "dist/chart/Chart.yaml"]
     }
   }
 }

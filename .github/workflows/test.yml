@@ -19,10 +19,10 @@ jobs:
           go-version-file: go.mod
 
       - name: Regenerate code and tidy modules
-        run: make manifests generate && go mod tidy
+        run: make manifests generate helm && go mod tidy
 
       - name: Check for stale generated files
-        run: git diff --exit-code
+        run: git diff --exit-code && test -z "$(git status --porcelain)"
 
       - name: Running Tests
         run: make test
