@@ -273,6 +273,21 @@ func TestBuildEnvVars_CustomValues(t *testing.T) {
 	}
 }
 
+// MaxPlayers and MaxTickRate have no API-server default, so unset values fall back here.
+func TestBuildEnvVars_ZeroIntFieldsFallBackToDefaults(t *testing.T) {
+	spec := defaultSpec()
+	spec.MaxPlayers = 0
+	spec.MaxTickRate = 0
+
+	envs := buildEnvVars(spec)
+
+	for name, want := range map[string]string{"MAXPLAYERS": "4", "MAXTICKRATE": "30"} {
+		if got, _ := findEnv(envs, name); got != want {
+			t.Errorf("env var %q = %q, want %q", name, got, want)
+		}
+	}
+}
+
 // When *bool fields are nil, boolToString falls back to its documented default.
 func TestBuildEnvVars_NilBoolFieldsFallBackToDefaults(t *testing.T) {
 	spec := defaultSpec()

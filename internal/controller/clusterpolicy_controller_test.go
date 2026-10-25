@@ -145,6 +145,11 @@ var _ = Describe("ClusterPolicy Controller", func() {
 			cp := &satisfactoryv1alpha1.ClusterPolicy{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: policyName}, cp)).To(Succeed())
 			Expect(cp.Status.ServersGoverned).To(Equal(int32(1)))
+
+			server := &satisfactoryv1alpha1.SatisfactoryServer{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: serverName, Namespace: ns}, server)).To(Succeed())
+			Expect(server.Spec.MaxPlayers).To(Equal(int32(8)))
+			Expect(server.Spec.MaxTickRate).To(Equal(int32(60)))
 		})
 	})
 

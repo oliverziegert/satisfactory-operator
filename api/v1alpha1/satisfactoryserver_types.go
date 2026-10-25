@@ -80,7 +80,7 @@ type SatisfactoryServerSpec struct {
 
 	// MaxPlayers is the maximum number of players allowed on the server.
 	// Maps to the MAXPLAYERS environment variable.
-	// +kubebuilder:default=4
+	// Defaults to 4. Not defaulted by the API server, so a ClusterPolicy default can apply.
 	// +kubebuilder:validation:Minimum=1
 	// +optional
 	MaxPlayers int32 `json:"maxPlayers,omitempty"`
@@ -94,7 +94,7 @@ type SatisfactoryServerSpec struct {
 
 	// MaxTickRate is the maximum simulation tick rate for the server.
 	// Maps to the MAXTICKRATE environment variable.
-	// +kubebuilder:default=30
+	// Defaults to 30. Not defaulted by the API server, so a ClusterPolicy default can apply.
 	// +kubebuilder:validation:Minimum=1
 	// +optional
 	MaxTickRate int32 `json:"maxTickRate,omitempty"`
@@ -161,7 +161,7 @@ type SatisfactoryServerSpec struct {
 	// SkipUpdate avoids updating the game on container start/restart.
 	// Maps to the SKIPUPDATE environment variable.
 	// Defaults to true in Kubernetes to prevent unexpected 8GB+ downloads on pod restart.
-	// +kubebuilder:default=true
+	// Not defaulted by the API server, so a ClusterPolicy default can apply.
 	// +optional
 	SkipUpdate *bool `json:"skipUpdate,omitempty"`
 
