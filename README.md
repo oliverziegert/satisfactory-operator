@@ -91,6 +91,16 @@ spec:
 
 A port outside the range shows up as `Degraded` with reason `ServiceInvalid` and the API server's message. The operator owns the Service ports and reverts manual patches on the next reconcile.
 
+### Watched namespaces
+
+By default the operator watches all namespaces. To limit it to some, pass `--watch-namespaces=games,games-test` or set the `WATCH_NAMESPACES` env var. If both are set, the flag wins:
+
+```sh
+kubectl -n satisfactory-operator-system set env deployment/satisfactory-operator-controller-manager WATCH_NAMESPACES=games
+```
+
+`SatisfactoryServer` and `SaveGame` resources in other namespaces are ignored: the operator creates nothing for them and doesn't update their status. `ClusterPolicy` is still watched cluster-wide, but its defaults and limits only apply to servers in watched namespaces. The listed namespaces must exist. The bundled RBAC stays cluster-wide, so a namespace-scoped install needs its own Roles.
+
 ## Uninstall
 
 ```sh

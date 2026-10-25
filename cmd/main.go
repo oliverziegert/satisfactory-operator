@@ -21,6 +21,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -31,6 +32,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -56,6 +58,22 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
+// watchNamespaces returns the namespaces to watch from the flag, falling back to the env var.
+// nil means cluster-wide.
+func watchNamespaces(flagValue, envValue string) []string {
+	value := flagValue
+	if value == "" {
+		value = envValue
+	}
+	var namespaces []string
+	for ns := range strings.SplitSeq(value, ",") {
+		if ns = strings.TrimSpace(ns); ns != "" {
+			namespaces = append(namespaces, ns)
+		}
+	}
+	return namespaces
+}
+
 // nolint:gocyclo
 func main() {
 	var metricsAddr string
@@ -65,6 +83,7 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var watchNamespacesFlag string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -83,6 +102,8 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(&watchNamespacesFlag, "watch-namespaces", "",
+		"Comma-separated namespaces to watch. Falls back to WATCH_NAMESPACES; empty means all namespaces.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -180,8 +201,21 @@ func main() {
 		})
 	}
 
+	var cacheOptions cache.Options
+	if namespaces := watchNamespaces(watchNamespacesFlag, os.Getenv("WATCH_NAMESPACES")); namespaces != nil {
+		// Cluster-scoped kinds (ClusterPolicy) are not restricted by DefaultNamespaces.
+		cacheOptions.DefaultNamespaces = map[string]cache.Config{}
+		for _, ns := range namespaces {
+			cacheOptions.DefaultNamespaces[ns] = cache.Config{}
+		}
+		setupLog.Info("watching namespaces", "namespaces", namespaces)
+	} else {
+		setupLog.Info("watching all namespaces")
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
+		Cache:  cacheOptions,
 		// Pods are only read for the server's own pod; don't cache every pod in the cluster.
 		Client:                 client.Options{Cache: &client.CacheOptions{DisableFor: []client.Object{&corev1.Pod{}}}},
 		Metrics:                metricsServerOptions,
