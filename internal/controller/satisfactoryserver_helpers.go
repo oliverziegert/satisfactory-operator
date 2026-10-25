@@ -41,9 +41,9 @@ func intstrFromInt32(v int32) intstr.IntOrString {
 func buildEnvVars(spec satisfactoryv1alpha1.SatisfactoryServerSpec) []corev1.EnvVar {
 	envVars := []corev1.EnvVar{
 		// 2.2 Server config fields
-		{Name: "MAXPLAYERS", Value: fmt.Sprintf("%d", spec.MaxPlayers)},
+		{Name: "MAXPLAYERS", Value: fmt.Sprintf("%d", int32OrDefault(spec.MaxPlayers, 4))},
 		{Name: "AUTOSAVENUM", Value: fmt.Sprintf("%d", spec.AutosaveNum)},
-		{Name: "MAXTICKRATE", Value: fmt.Sprintf("%d", spec.MaxTickRate)},
+		{Name: "MAXTICKRATE", Value: fmt.Sprintf("%d", int32OrDefault(spec.MaxTickRate, 30))},
 		{Name: "MAXOBJECTS", Value: fmt.Sprintf("%d", spec.MaxObjects)},
 		{Name: "TIMEOUT", Value: fmt.Sprintf("%d", spec.Timeout)},
 
@@ -224,6 +224,14 @@ func boolToString(b *bool, defaultVal bool) string {
 		return fmt.Sprintf("%t", defaultVal)
 	}
 	return fmt.Sprintf("%t", *b)
+}
+
+// int32OrDefault returns v, or defaultVal when v is unset (zero).
+func int32OrDefault(v, defaultVal int32) int32 {
+	if v == 0 {
+		return defaultVal
+	}
+	return v
 }
 
 // ptrInt64OrDefault returns the value of a *int64 pointer, or defaultVal when nil.

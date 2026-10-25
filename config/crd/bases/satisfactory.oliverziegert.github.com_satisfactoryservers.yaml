@@ -291,18 +291,18 @@ spec:
                 format: int64
                 type: integer
               maxPlayers:
-                default: 4
                 description: |-
                   MaxPlayers is the maximum number of players allowed on the server.
                   Maps to the MAXPLAYERS environment variable.
+                  Defaults to 4. Not defaulted by the API server, so a ClusterPolicy default can apply.
                 format: int32
                 minimum: 1
                 type: integer
               maxTickRate:
-                default: 30
                 description: |-
                   MaxTickRate is the maximum simulation tick rate for the server.
                   Maps to the MAXTICKRATE environment variable.
+                  Defaults to 30. Not defaulted by the API server, so a ClusterPolicy default can apply.
                 format: int32
                 minimum: 1
                 type: integer
@@ -582,11 +582,11 @@ spec:
                   the server externally.
                 type: string
               skipUpdate:
-                default: true
                 description: |-
                   SkipUpdate avoids updating the game on container start/restart.
                   Maps to the SKIPUPDATE environment variable.
                   Defaults to true in Kubernetes to prevent unexpected 8GB+ downloads on pod restart.
+                  Not defaulted by the API server, so a ClusterPolicy default can apply.
                 type: boolean
               steamBeta:
                 default: false
