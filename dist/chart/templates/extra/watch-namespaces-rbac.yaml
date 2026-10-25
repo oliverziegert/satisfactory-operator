@@ -1,0 +1,77 @@
+{{- if .Values.watchNamespaces }}
+{{- range .Values.watchNamespaces }}
+---
+# Binding the generated manager-role ClusterRole with a RoleBinding grants its rules in this namespace only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    app.kubernetes.io/name: {{ include "satisfactory-operator.name" $ }}
+    helm.sh/chart: {{ $.Chart.Name }}-{{ $.Chart.Version | replace "+" "_" }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+  name: {{ include "satisfactory-operator.resourceName" (dict "suffix" "manager-rolebinding" "context" $) }}
+  namespace: {{ . }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "satisfactory-operator.resourceName" (dict "suffix" "manager-role" "context" $) }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "satisfactory-operator.serviceAccountName" $ }}
+  namespace: {{ $.Release.Namespace }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/name: {{ include "satisfactory-operator.name" . }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  name: {{ include "satisfactory-operator.resourceName" (dict "suffix" "clusterpolicy-manager-role" "context" $) }}
+rules:
+- apiGroups:
+  - satisfactory.oliverziegert.github.com
+  resources:
+  - clusterpolicies
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - satisfactory.oliverziegert.github.com
+  resources:
+  - clusterpolicies/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - satisfactory.oliverziegert.github.com
+  resources:
+  - clusterpolicies/finalizers
+  verbs:
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/name: {{ include "satisfactory-operator.name" . }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  name: {{ include "satisfactory-operator.resourceName" (dict "suffix" "clusterpolicy-manager-rolebinding" "context" $) }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "satisfactory-operator.resourceName" (dict "suffix" "clusterpolicy-manager-role" "context" $) }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "satisfactory-operator.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}

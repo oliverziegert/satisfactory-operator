@@ -1,0 +1,16 @@
+{{- if .Values.clusterPolicy.enabled }}
+# A hook, because a CR can't be installed in the same release step as its CRD.
+apiVersion: satisfactory.oliverziegert.github.com/v1alpha1
+kind: ClusterPolicy
+metadata:
+  name: {{ .Values.clusterPolicy.name }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/name: {{ include "satisfactory-operator.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  {{- toYaml .Values.clusterPolicy.spec | nindent 2 }}
+{{- end }}
