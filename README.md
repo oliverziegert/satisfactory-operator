@@ -21,7 +21,7 @@ Install the operator (multi-arch image, `linux/amd64` and `linux/arm64`) with He
 
 ```sh
 # x-release-please-start-version
-helm install satisfactory-operator oci://ghcr.io/oliverziegert/charts/satisfactory-operator --version 0.2.1 \
+helm install satisfactory-operator oci://ghcr.io/oliverziegert/charts/satisfactory-operator --version 0.2.2 \
   -n satisfactory-operator-system --create-namespace
 # x-release-please-end
 ```
@@ -38,7 +38,7 @@ Without Helm, install the CRDs and a cluster-wide operator from the release mani
 
 ```sh
 # x-release-please-start-version
-kubectl apply -f https://github.com/oliverziegert/satisfactory-operator/releases/download/v0.2.1/install.yaml
+kubectl apply -f https://github.com/oliverziegert/satisfactory-operator/releases/download/v0.2.2/install.yaml
 # x-release-please-end
 ```
 
