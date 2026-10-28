@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.2](https://github.com/oliverziegert/satisfactory-operator/compare/v0.2.1...v0.2.2) (2026-10-28)
+
+
+### Bug Fixes
+
+* **deps:** update golang:1.27 docker digest to 2920bb1 ([#63](https://github.com/oliverziegert/satisfactory-operator/issues/63)) ([8ba9c36](https://github.com/oliverziegert/satisfactory-operator/commit/8ba9c36a316343984c54158d76ab2f6def4a35eb))
+* **deps:** update golang:1.27 docker digest to 6f1acc8 ([#59](https://github.com/oliverziegert/satisfactory-operator/issues/59)) ([1d5bb73](https://github.com/oliverziegert/satisfactory-operator/commit/1d5bb73c11f4e1c461ee1e3b487139c425286073))
+* **deps:** update golang:1.27 docker digest to 898838c ([#60](https://github.com/oliverziegert/satisfactory-operator/issues/60)) ([c852f14](https://github.com/oliverziegert/satisfactory-operator/commit/c852f14bf9d93b83f4ba70d9aac4d83782061cbc))
+* **deps:** update golang:1.27 docker digest to 9048d5e ([#56](https://github.com/oliverziegert/satisfactory-operator/issues/56)) ([6547fbd](https://github.com/oliverziegert/satisfactory-operator/commit/6547fbd304ffbcf76b4ae07107a0519a5b9b05a9))
+* **deps:** update golang:1.27 docker digest to 921f611 ([#58](https://github.com/oliverziegert/satisfactory-operator/issues/58)) ([bde8c80](https://github.com/oliverziegert/satisfactory-operator/commit/bde8c80d65742a87516aa741fd6da96166284645))
+* **deps:** update golang:1.27 docker digest to b760209 ([#61](https://github.com/oliverziegert/satisfactory-operator/issues/61)) ([f94bfbb](https://github.com/oliverziegert/satisfactory-operator/commit/f94bfbb25e108bf4e5de56e737862998fcd8495c))
+* **deps:** update kubernetes stack to v0.37.2 ([#62](https://github.com/oliverziegert/satisfactory-operator/issues/62)) ([7fb4670](https://github.com/oliverziegert/satisfactory-operator/commit/7fb4670c28a063d796d01baeeca555391ba24fb3))
+
 ## [0.2.1](https://github.com/oliverziegert/satisfactory-operator/compare/v0.2.0...v0.2.1) (2026-10-25)
 
 
