@@ -107,7 +107,7 @@ func runBackup(ctx context.Context, args []string, resultPath string) int {
 		//nolint:gosec // self-signed cert expected
 		game := satisfactory.NewClient(*serverURL, &tls.Config{InsecureSkipVerify: true})
 		game.SetAuthToken(strings.TrimSpace(string(token)))
-		targets, err := backup.Targets(dests, game)
+		targets, err := backup.Targets(ctx, dests, game)
 		if err != nil {
 			return backup.Result{}, err
 		}

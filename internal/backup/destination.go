@@ -75,7 +75,7 @@ type Target struct {
 }
 
 // Targets opens the resolved destinations.
-func Targets(dests []satisfactoryv1alpha1.SaveGameDestination, game *satisfactory.Client) ([]Target, error) {
+func Targets(ctx context.Context, dests []satisfactoryv1alpha1.SaveGameDestination, game *satisfactory.Client) ([]Target, error) {
 	targets := make([]Target, 0, len(dests))
 	for _, d := range dests {
 		t := Target{Name: d.Name, Retention: d.RetentionPolicy}
@@ -85,6 +85,16 @@ func Targets(dests []satisfactoryv1alpha1.SaveGameDestination, game *satisfactor
 		case d.PVC != nil:
 			// The API server rejects absolute paths and ".." segments.
 			t.Dest = &PVC{Dir: filepath.Join(PVCMountRoot, d.Name, d.PVC.Path)}
+		case d.S3 != nil:
+			credsDir := ""
+			if d.S3.CredentialsSecretRef != nil {
+				credsDir = filepath.Join(S3CredentialsRoot, d.Name)
+			}
+			dest, err := NewS3(ctx, d.S3, credsDir)
+			if err != nil {
+				return nil, fmt.Errorf("destination %q: %w", d.Name, err)
+			}
+			t.Dest = dest
 		default:
 			return nil, fmt.Errorf("destination %q has no type this binary supports", d.Name)
 		}
