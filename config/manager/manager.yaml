@@ -65,6 +65,10 @@ spec:
           - --health-probe-bind-address=:8081
         image: controller:latest
         name: manager
+        env:
+        # Set from the manager image by the replacement in kustomization.yaml.
+        - name: RELATED_IMAGE_BACKUP
+          value: controller:latest
         ports: []
         securityContext:
           allowPrivilegeEscalation: false

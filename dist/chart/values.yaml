@@ -215,4 +215,3 @@ prometheus:
 ##
 networkPolicy:
   enabled: false
-

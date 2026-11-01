@@ -7,11 +7,15 @@ Copy save games to one or more backup destinations through a common interface, s
 ## ADDED Requirements
 
 ### Requirement: Destinations list
-The `SaveGameSpec` SHALL have an optional `destinations` list. Each entry SHALL have a `name`, an optional `retentionPolicy` and exactly one destination type field. The API server SHALL reject a SaveGame in which an entry has zero or more than one type field, two entries share a `name`, more than one entry has the `server` type, or a `name` is not a valid DNS label.
+The `SaveGameSpec` SHALL have an optional `destinations` list of at most 10 entries, which keeps the Job result within the termination message limit. Each entry SHALL have a `name`, an optional `retentionPolicy` and exactly one destination type field. The API server SHALL reject a SaveGame in which an entry has zero or more than one type field, two entries share a `name`, more than one entry has the `server` type, or a `name` is not a valid DNS label.
 
 #### Scenario: Valid list
 - **WHEN** a SaveGame is applied with `destinations: [{name: local, server: {}}]`
 - **THEN** the API server accepts it
+
+#### Scenario: Too many entries
+- **WHEN** a SaveGame is applied with 11 destination entries
+- **THEN** the API server rejects the SaveGame
 
 #### Scenario: Two types in one entry
 - **WHEN** a destination entry sets two type fields

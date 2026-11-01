@@ -18,11 +18,12 @@ package controller
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,16 +35,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	satisfactoryv1alpha1 "github.com/oliverziegert/satisfactory-operator/api/v1alpha1"
+	"github.com/oliverziegert/satisfactory-operator/internal/backup"
 	"github.com/oliverziegert/satisfactory-operator/internal/conditions"
-	satisfactory "github.com/oliverziegert/satisfactory-operator/pkg/satisfactory"
 )
 
-// fakeGameAPI is an in-memory game server API covering the save-related functions.
+// fakeGameAPI is a game server API covering login. It records SaveGame calls so tests can
+// check that the reconciler never saves itself (the backup Job does).
 type fakeGameAPI struct {
-	saves     []satisfactory.SaveHeader
 	saved     []string
-	deleted   []string
-	failSave  bool
 	failLogin bool
 }
 
@@ -74,23 +73,7 @@ func (f *fakeGameAPI) handler() http.HandlerFunc {
 		case "QueryServerState":
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"serverGameState": map[string]any{}}})
 		case "SaveGame":
-			if f.failSave {
-				w.WriteHeader(http.StatusInternalServerError)
-				_, _ = w.Write([]byte(`{"errorCode":"save_failed"}`))
-				return
-			}
 			f.saved = append(f.saved, req.Data.SaveName)
-			f.saves = append(f.saves, satisfactory.SaveHeader{
-				SaveName: req.Data.SaveName, SaveDateTime: time.Now().UTC().Format(saveDateTimeLayout),
-			})
-			w.WriteHeader(http.StatusNoContent)
-		case "EnumerateSessions":
-			_ = json.NewEncoder(w).Encode(map[string]any{"data": satisfactory.EnumerateSessionsResponse{
-				Sessions: []satisfactory.SessionSaveStruct{{SessionName: "world", SaveHeaders: f.saves}},
-			}})
-		case "DeleteSaveFile":
-			f.deleted = append(f.deleted, req.Data.SaveName)
-			f.saves = slices.DeleteFunc(f.saves, func(h satisfactory.SaveHeader) bool { return h.SaveName == req.Data.SaveName })
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			w.WriteHeader(http.StatusBadRequest)
@@ -119,17 +102,14 @@ func newSaveGameReconciler(t *testing.T, ts *httptest.Server, objs ...client.Obj
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(objs...).
 		WithStatusSubresource(&satisfactoryv1alpha1.SaveGame{}).Build()
 	return &SaveGameReconciler{
-		Client:     c,
-		Scheme:     s,
-		GameAPIURL: func(*satisfactoryv1alpha1.SatisfactoryServer) string { return ts.URL },
+		Client:      c,
+		Scheme:      s,
+		BackupImage: "operator:test",
+		GameAPIURL:  func(*satisfactoryv1alpha1.SatisfactoryServer) string { return ts.URL },
 	}
 }
 
-func testClient(ts *httptest.Server) *satisfactory.Client {
-	return satisfactory.NewClient(ts.URL, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec
-}
-
-func TestResolveServerClient(t *testing.T) {
+func TestAuthenticatedServer(t *testing.T) {
 	server, secret := reachableServer()
 	unreachable := newTestServer("down")
 
@@ -149,10 +129,10 @@ func TestResolveServerClient(t *testing.T) {
 			ts := (&fakeGameAPI{failLogin: tt.failLogin}).start(t)
 			r := newSaveGameReconciler(t, ts, server.DeepCopy(), unreachable.DeepCopy(), secret.DeepCopy())
 
-			c, err := r.resolveServerClient(context.Background(), tt.ref, "default")
+			srv, err := r.authenticatedServer(context.Background(), tt.ref, "default")
 			if tt.wantReason == "" {
-				if err != nil || c == nil {
-					t.Fatalf("expected client, got err %v", err)
+				if err != nil || srv == nil {
+					t.Fatalf("expected server, got err %v", err)
 				}
 				return
 			}
@@ -164,114 +144,144 @@ func TestResolveServerClient(t *testing.T) {
 	}
 }
 
-func TestTriggerSave(t *testing.T) {
-	api := &fakeGameAPI{}
-	ts := api.start(t)
-	now := time.Date(2026, 10, 19, 14, 0, 0, 0, time.UTC)
-
-	name, err := triggerSave(context.Background(), testClient(ts), "mysave", now)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if name != "mysave_20261019-140000" || !slices.Equal(api.saved, []string{name}) {
-		t.Errorf("unexpected save name %q, saved %v", name, api.saved)
-	}
-
-	api.failSave = true
-	if _, err := triggerSave(context.Background(), testClient(ts), "mysave", now); err == nil {
-		t.Error("expected error when SaveGame fails")
-	}
-}
-
-func TestEnumerateSessionSaves(t *testing.T) {
-	api := &fakeGameAPI{saves: []satisfactory.SaveHeader{
-		{SaveName: "mysave_b", SaveDateTime: "2026.10.19-12.00.00"},
-		{SaveName: "other_a", SaveDateTime: "2026.10.19-10.00.00"},
-		{SaveName: "mysave", SaveDateTime: "2026.10.18-12.00.00"},
-		{SaveName: "mysaveextra", SaveDateTime: "2026.10.17-12.00.00"},
-	}}
-	ts := api.start(t)
-
-	saves, err := enumerateSessionSaves(context.Background(), testClient(ts), "mysave")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	names := make([]string, 0, len(saves))
-	for _, s := range saves {
-		names = append(names, s.SaveName)
-	}
-	if want := []string{"mysave", "mysave_b"}; !slices.Equal(names, want) {
-		t.Errorf("expected %v (oldest first), got %v", want, names)
-	}
-}
-
-func TestEnforceRetention(t *testing.T) {
-	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
-	saveAt := func(name string, ago time.Duration) satisfactory.SaveHeader {
-		return satisfactory.SaveHeader{SaveName: name, SaveDateTime: now.Add(-ago).Format(saveDateTimeLayout)}
-	}
-	saves := []satisfactory.SaveHeader{
-		saveAt("s1", 100*time.Hour), saveAt("s2", 80*time.Hour), saveAt("s3", 10*time.Hour), saveAt("s4", time.Hour),
-	}
-
-	tests := []struct {
-		name        string
-		policy      *satisfactoryv1alpha1.SaveGameRetentionPolicy
-		wantDeleted []string
-	}{
-		{name: "no policy"},
-		{name: "maxCount", policy: &satisfactoryv1alpha1.SaveGameRetentionPolicy{MaxCount: ptr.To[int32](3)},
-			wantDeleted: []string{"s1"}},
-		{name: "maxAge", policy: &satisfactoryv1alpha1.SaveGameRetentionPolicy{MaxAge: &metav1.Duration{Duration: 72 * time.Hour}},
-			wantDeleted: []string{"s1", "s2"}},
-		{name: "both", policy: &satisfactoryv1alpha1.SaveGameRetentionPolicy{
-			MaxCount: ptr.To[int32](1), MaxAge: &metav1.Duration{Duration: 72 * time.Hour}},
-			wantDeleted: []string{"s1", "s2", "s3"}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			api := &fakeGameAPI{saves: slices.Clone(saves)}
-			ts := api.start(t)
-
-			kept, err := enforceRetention(context.Background(), testClient(ts), slices.Clone(saves), tt.policy, now)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if !slices.Equal(api.deleted, tt.wantDeleted) {
-				t.Errorf("deleted %v, want %v", api.deleted, tt.wantDeleted)
-			}
-			if len(kept) != len(saves)-len(tt.wantDeleted) {
-				t.Errorf("kept %d saves, want %d", len(kept), len(saves)-len(tt.wantDeleted))
-			}
-		})
-	}
-}
-
-func TestBackupDue(t *testing.T) {
+func TestNextBackup(t *testing.T) {
 	hourly, err := cron.ParseStandard("0 * * * *")
 	if err != nil {
 		t.Fatal(err)
 	}
-	last := &metav1.Time{Time: time.Date(2026, 10, 19, 10, 0, 0, 0, time.UTC)}
+	daily, err := cron.ParseStandard("0 0 * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 19, 10, 30, 0, 0, time.UTC)
+	at := func(h, m int) *metav1.Time { return &metav1.Time{Time: time.Date(2026, 10, 19, h, m, 0, 0, time.UTC)} }
+	jobAt := at(10, 0).Time
 
 	tests := []struct {
-		name  string
-		sched cron.Schedule
-		last  *metav1.Time
-		now   time.Time
-		want  bool
+		name    string
+		sched   cron.Schedule
+		status  satisfactoryv1alpha1.SaveGameStatus
+		lastRun *time.Time
+		want    time.Time
+		wantOK  bool
 	}{
-		{name: "no prior backup triggers immediately", sched: hourly, now: last.Time, want: true},
-		{name: "next tick in the future", sched: hourly, last: last, now: last.Add(30 * time.Minute), want: false},
-		{name: "next tick reached", sched: hourly, last: last, now: last.Add(time.Hour), want: true},
-		{name: "no schedule, never saved: one-shot", now: last.Time, want: true},
-		{name: "no schedule, already saved", last: last, now: last.Add(100 * time.Hour), want: false},
+		{name: "scheduled, never ran: now", sched: hourly, want: now, wantOK: true},
+		{name: "scheduled, last backup only", sched: hourly,
+			status: satisfactoryv1alpha1.SaveGameStatus{LastBackupTime: at(9, 0)}, want: at(10, 0).Time, wantOK: true},
+		{name: "scheduled, failed run waits for stored next tick", sched: hourly, lastRun: &jobAt,
+			status: satisfactoryv1alpha1.SaveGameStatus{LastBackupTime: at(8, 0), NextBackupTime: at(11, 0)},
+			want:   at(11, 0).Time, wantOK: true},
+		{name: "schedule changed to run sooner", sched: hourly,
+			status: satisfactoryv1alpha1.SaveGameStatus{NextBackupTime: &metav1.Time{Time: now.Add(24 * time.Hour)}},
+			want:   at(11, 0).Time, wantOK: true},
+		{name: "stored next tick of a slower schedule still runs once", sched: daily,
+			status: satisfactoryv1alpha1.SaveGameStatus{NextBackupTime: at(11, 0)}, want: at(11, 0).Time, wantOK: true},
+		{name: "one-shot, never ran: now", want: now, wantOK: true},
+		{name: "one-shot, failed run retries later", lastRun: &jobAt, want: jobAt.Add(saveGameRetryInterval), wantOK: true},
+		{name: "one-shot, done", status: satisfactoryv1alpha1.SaveGameStatus{LastBackupTime: at(9, 0)}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := backupDue(tt.sched, tt.last, tt.now); got != tt.want {
-				t.Errorf("backupDue = %v, want %v", got, tt.want)
+			got, ok := nextBackup(tt.sched, tt.status, tt.lastRun, now)
+			if ok != tt.wantOK || !got.Equal(tt.want) {
+				t.Errorf("nextBackup = %v, %v; want %v, %v", got, ok, tt.want, tt.wantOK)
 			}
 		})
 	}
+}
+
+func TestBuildBackupJob(t *testing.T) {
+	sg := newSaveGame(strings.Repeat("a", 60), "")
+	sg.Spec.RetentionPolicy = &satisfactoryv1alpha1.SaveGameRetentionPolicy{MaxCount: ptr.To[int32](5)}
+	at := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+
+	job, err := buildBackupJob(sg, newTestScheme(t), "img:v1", "srv", "https://srv:7777", "save1_20261101-120000", at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(job.Name) > 63 || !strings.HasSuffix(job.Name, fmt.Sprintf("-%d", at.Unix())) {
+		t.Errorf("bad name %q", job.Name)
+	}
+	if !metav1.IsControlledBy(job, sg) {
+		t.Error("Job is not owned by the SaveGame")
+	}
+	if *job.Spec.BackoffLimit != 0 || *job.Spec.ActiveDeadlineSeconds != 1800 || *job.Spec.TTLSecondsAfterFinished != 3600 {
+		t.Errorf("unexpected Job limits %+v", job.Spec)
+	}
+	pod := job.Spec.Template.Spec
+	c := pod.Containers[0]
+	if *pod.AutomountServiceAccountToken || !*pod.SecurityContext.RunAsNonRoot || pod.RestartPolicy != corev1.RestartPolicyNever {
+		t.Error("pod must not mount a token, must run as non-root and never restart")
+	}
+	if !*c.SecurityContext.ReadOnlyRootFilesystem || *c.SecurityContext.AllowPrivilegeEscalation ||
+		!slices.Equal(c.SecurityContext.Capabilities.Drop, []corev1.Capability{"ALL"}) {
+		t.Errorf("container not hardened: %+v", c.SecurityContext)
+	}
+	if c.Image != "img:v1" || c.TerminationMessagePolicy != corev1.TerminationMessageFallbackToLogsOnError ||
+		c.Resources.Limits.Memory().String() != "256Mi" || !c.Resources.Limits.Cpu().IsZero() {
+		t.Errorf("unexpected container %+v", c)
+	}
+	wantArgs := []string{"backup", "--server-url=https://srv:7777", "--save-name=save1_20261101-120000",
+		"--session-prefix=save1",
+		`--config=[{"name":"server","retentionPolicy":{"maxCount":5},"server":{}}]`,
+		"--token-file=/var/run/satisfactory/token"}
+	if !slices.Equal(c.Args, wantArgs) {
+		t.Errorf("args %v, want %v", c.Args, wantArgs)
+	}
+	vols := pod.Volumes
+	if vols[0].EmptyDir.SizeLimit.String() != "2Gi" || vols[1].Secret.SecretName != "srv-auth-token" || !c.VolumeMounts[1].ReadOnly {
+		t.Errorf("unexpected volumes %+v / mounts %+v", vols, c.VolumeMounts)
+	}
+}
+
+func TestApplyBackupResult(t *testing.T) {
+	at := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	earlier := metav1.Time{Time: at.Add(-time.Hour)}
+	newSG := func() *satisfactoryv1alpha1.SaveGame {
+		sg := newSaveGame("sg", "0 * * * *")
+		sg.Spec.Destinations = []satisfactoryv1alpha1.SaveGameDestination{
+			{Name: "local", Server: &satisfactoryv1alpha1.ServerDestination{}}, {Name: "offsite"},
+		}
+		sg.Status.Destinations = []satisfactoryv1alpha1.SaveGameDestinationStatus{
+			{Name: "offsite", LastSuccessTime: &earlier}, {Name: "removed"},
+		}
+		return sg
+	}
+
+	t.Run("all succeed", func(t *testing.T) {
+		sg := newSG()
+		phase, status, reason, _ := applyBackupResult(sg, backup.Result{SaveName: "x", Saved: true, Size: 42,
+			Destinations: []backup.DestinationResult{{Name: "local", OK: true, Retained: 3}, {Name: "offsite", OK: true, Retained: 7}}}, at)
+		if phase != satisfactoryv1alpha1.SaveGamePhaseActive || status != metav1.ConditionTrue || reason != "Reconciled" {
+			t.Fatalf("got %s %s %s", phase, status, reason)
+		}
+		d := sg.Status.Destinations
+		if len(d) != 2 || !d[1].LastSuccessTime.Time.Equal(at) || *d[1].LastSize != 42 || sg.Status.RetainedSaveCount != 3 ||
+			!sg.Status.LastBackupTime.Time.Equal(at) || *sg.Status.BackupSize != 42 {
+			t.Errorf("unexpected status %+v", sg.Status)
+		}
+	})
+
+	t.Run("one destination fails", func(t *testing.T) {
+		sg := newSG()
+		phase, status, reason, msg := applyBackupResult(sg, backup.Result{SaveName: "x", Saved: true, Size: 42,
+			Destinations: []backup.DestinationResult{{Name: "local", OK: true, Retained: 3}, {Name: "offsite", Error: "boom"}}}, at)
+		if phase != satisfactoryv1alpha1.SaveGamePhaseFailed || status != metav1.ConditionFalse || reason != "DestinationFailed" ||
+			!strings.Contains(msg, "offsite: boom") {
+			t.Fatalf("got %s %s %s %q", phase, status, reason, msg)
+		}
+		if off := sg.Status.Destinations[1]; off.LastError != "boom" || !off.LastSuccessTime.Equal(&earlier) {
+			t.Errorf("unexpected offsite status %+v", off)
+		}
+	})
+
+	t.Run("save failed", func(t *testing.T) {
+		sg := newSG()
+		phase, _, reason, msg := applyBackupResult(sg, backup.Result{SaveName: "x", Error: "save_failed",
+			Destinations: []backup.DestinationResult{{Name: "local", Error: "skipped"}, {Name: "offsite", Error: "skipped"}}}, at)
+		if phase != satisfactoryv1alpha1.SaveGamePhaseFailed || reason != "SaveFailed" || msg != "save_failed" ||
+			sg.Status.LastBackupTime != nil {
+			t.Fatalf("got %s %s %q, last backup %v", phase, reason, msg, sg.Status.LastBackupTime)
+		}
+	})
 }

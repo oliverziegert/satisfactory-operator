@@ -52,4 +52,4 @@ The `SaveGameStatus` SHALL include additional fields: `nextBackupTime` (metav1.T
 
 #### Scenario: Status populated after reconciliation
 - **WHEN** a SaveGame with a schedule finishes a backup Job
-- **THEN** `status.nextBackupTime` SHALL be set to the next cron trigger time, `status.retainedSaveCount` SHALL reflect the `server` destination's retained count from the Job result (0 without a `server` destination), and `status.destinations` SHALL have one entry per configured destination
+- **THEN** `status.nextBackupTime` SHALL hold the first cron tick after the run (set when the Job was created), `status.retainedSaveCount` SHALL reflect the `server` destination's retained count from the Job result (0 without a `server` destination), and `status.destinations` SHALL have one entry per configured destination

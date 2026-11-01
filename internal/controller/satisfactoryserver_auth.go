@@ -43,6 +43,9 @@ type authHelperError struct {
 func (e *authHelperError) Error() string { return e.Message }
 
 // authSecretNameFor returns the name of the managed auth token Secret for a server.
+// authTokenKey is the key of the token in the <server-name>-auth-token Secret.
+const authTokenKey = "token"
+
 func authSecretNameFor(serverName string) string {
 	return serverName + "-auth-token"
 }
@@ -84,7 +87,7 @@ func (r *SatisfactoryServerReconciler) getCachedAuthToken(ctx context.Context, s
 	if err != nil {
 		return "", fmt.Errorf("get auth token secret: %w", err)
 	}
-	return string(secret.Data["token"]), nil
+	return string(secret.Data[authTokenKey]), nil
 }
 
 // cacheAuthToken creates or updates the <server-name>-auth-token Secret with the given token.
@@ -100,7 +103,7 @@ func (r *SatisfactoryServerReconciler) cacheAuthToken(ctx context.Context, serve
 				Name:      secretName,
 				Namespace: server.Namespace,
 			},
-			Data: map[string][]byte{"token": []byte(token)},
+			Data: map[string][]byte{authTokenKey: []byte(token)},
 		}
 		if err := controllerutil.SetControllerReference(server, newSecret, r.Scheme); err != nil {
 			return fmt.Errorf("set owner reference on auth token secret: %w", err)
@@ -113,7 +116,7 @@ func (r *SatisfactoryServerReconciler) cacheAuthToken(ctx context.Context, serve
 	if err != nil {
 		return fmt.Errorf("get auth token secret: %w", err)
 	}
-	existing.Data = map[string][]byte{"token": []byte(token)}
+	existing.Data = map[string][]byte{authTokenKey: []byte(token)}
 	if err := r.Update(ctx, existing); err != nil {
 		return fmt.Errorf("update auth token secret: %w", err)
 	}

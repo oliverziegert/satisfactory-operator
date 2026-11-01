@@ -40,6 +40,9 @@ var (
 	// projectImage is the name of the image which will be build and loaded
 	// with the code source changes to be tested.
 	projectImage = "example.com/satisfactory-operator:v0.0.1"
+
+	// fakeGameImage stands in for the game server in the backup test (test/e2e/fakegame).
+	fakeGameImage = "example.com/fake-satisfactory-server:e2e"
 )
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
@@ -63,6 +66,12 @@ var _ = BeforeSuite(func() {
 	By("loading the manager(Operator) image on Kind")
 	err = utils.LoadImageToKindClusterWithName(projectImage)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager(Operator) image into Kind")
+
+	By("building and loading the fake game server image")
+	_, err = utils.Run(exec.Command("docker", "build", "-t", fakeGameImage, "-f", "test/e2e/fakegame/Dockerfile", "."))
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the fake game server image")
+	err = utils.LoadImageToKindClusterWithName(fakeGameImage)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the fake game server image into Kind")
 
 	// The tests-e2e are intended to run on a temporary cluster that is created and destroyed for testing.
 	// To prevent errors when tests run in environments with CertManager already installed,

@@ -9,7 +9,7 @@ A Kubernetes operator that runs [Satisfactory](https://www.satisfactorygame.com/
 - **SatisfactoryServer** — deploys the game server as a single-replica StatefulSet with a persistent `/config` volume, a headless Service and an external Service (`LoadBalancer`, `NodePort` or `ClusterIP`).
 - **Automatic claiming** — with an admin password Secret, the operator logs in, claims an unclaimed server, sets its name and caches the API token.
 - **Health and status** — probes the game API and reports `Ready`, `Progressing`, `Degraded`, `ServerReachable`, `ServerClaimed`, `WorldLoaded` and `Authenticated` conditions, plus phase, server version and connected players.
-- **SaveGame** — one-shot or cron-scheduled saves through the game API, with retention by count and age.
+- **SaveGame** — one-shot or cron-scheduled saves through the game API, run as a Job per backup, with retention by count and age per destination.
 - **ClusterPolicy** — cluster-wide defaults (resources, storage class, server settings) and checks (allowed images, max servers per namespace). Violations are reported as Warning Events and on the policy's `Enforced` condition; they do not block servers.
 - **PVC retention** — save data is kept when a server is deleted unless `retainPVCOnDelete: false`.
 
@@ -117,6 +117,39 @@ spec:
 ```
 
 Every field is documented in the samples under [`config/samples/`](config/samples/), or run `kubectl explain satisfactoryserver.spec`.
+
+### Backups
+
+Each backup runs as a Job in the SaveGame's namespace. The Job uses the operator image, so that image must be pullable there. The Job saves through the game API, downloads the save once and writes it to every entry in `destinations`. Without `destinations`, the save stays on the game server, as if you had written:
+
+```yaml
+spec:
+  destinations:
+  - name: server
+    server: {}
+```
+
+`server` is the only destination type so far. Each destination may set its own `retentionPolicy`; otherwise `spec.retentionPolicy` applies. Retention only touches saves named `<saveName>_*`:
+
+```yaml
+apiVersion: satisfactory.oliverziegert.github.com/v1alpha1
+kind: SaveGame
+metadata:
+  name: hourly-backup
+spec:
+  serverRef: my-satisfactory-server
+  saveName: hourly
+  schedule: "0 * * * *"
+  retentionPolicy:
+    maxCount: 24
+  destinations:
+  - name: server
+    server: {}
+    retentionPolicy:
+      maxCount: 3
+```
+
+`status.destinations` shows each destination's last success, size, retained count and last error. A failed destination sets `Ready=False` with reason `DestinationFailed`. A failed run is not retried before the next schedule tick.
 
 ### NodePort
 
