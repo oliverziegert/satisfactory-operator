@@ -83,7 +83,7 @@ All API calls use `POST /api/v1/?function=<name>` with JSON bodies. Responses wr
 
 ### Backup Job (internal/backup/)
 
-`Destination` interface (`Put`/`List`/`Delete`/`Get`) with the `server` and `pvc` (atomic write to `/backup/<name>`) implementations, `Resolve` (empty `destinations` = `[{name: server, server: {}}]`, retention inherited from `spec.retentionPolicy`), and `Run.Do`, which produces the `Result` JSON. Without a `server` destination the Job deletes server copies only after every destination succeeded.
+`Destination` interface (`Put`/`List`/`Delete`/`Get`) with the `server`, `pvc` (atomic write to `/backup/<name>`) and `s3` (aws-sdk-go-v2, single `PutObject` with SHA-256, credentials from the Secret mounted at `/var/run/backup/s3/<name>`) implementations, `Resolve` (empty `destinations` = `[{name: server, server: {}}]`, retention inherited from `spec.retentionPolicy`), and `Run.Do`, which produces the `Result` JSON. Without a `server` destination the Job deletes server copies only after every destination succeeded.
 
 ### Conditions Helper (internal/conditions/)
 

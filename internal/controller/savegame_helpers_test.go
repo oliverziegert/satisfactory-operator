@@ -259,6 +259,37 @@ func TestBuildBackupJobPVCVolumes(t *testing.T) {
 	}
 }
 
+func TestBuildBackupJobS3Volumes(t *testing.T) {
+	sg := newSaveGame("sg", "")
+	at := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	sg.Spec.Destinations = []satisfactoryv1alpha1.SaveGameDestination{
+		{Name: "aws", S3: &satisfactoryv1alpha1.S3Destination{Bucket: "a",
+			CredentialsSecretRef: &satisfactoryv1alpha1.S3CredentialsSecretRef{Name: "creds-a"}}},
+		{Name: "rustfs", S3: &satisfactoryv1alpha1.S3Destination{Bucket: "b",
+			CredentialsSecretRef: &satisfactoryv1alpha1.S3CredentialsSecretRef{Name: "creds-b"}}},
+		{Name: "chain", S3: &satisfactoryv1alpha1.S3Destination{Bucket: "c"}},
+	}
+	job, err := buildBackupJob(sg, newTestScheme(t), "img:v1", "srv", "https://srv:7777", "save1_20261101-120000", at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pod := job.Spec.Template.Spec
+	vols, mounts := pod.Volumes, pod.Containers[0].VolumeMounts
+	if len(vols) != 4 || len(mounts) != 4 {
+		t.Fatalf("want two s3 volumes, got %+v / %+v", vols, mounts)
+	}
+	for i, want := range []struct{ name, secret, path string }{
+		{"dest-aws", "creds-a", "/var/run/backup/s3/aws"},
+		{"dest-rustfs", "creds-b", "/var/run/backup/s3/rustfs"},
+	} {
+		v, m := vols[2+i], mounts[2+i]
+		if v.Name != want.name || v.Secret.SecretName != want.secret || len(v.Secret.Items) != 2 ||
+			m.Name != want.name || m.MountPath != want.path || !m.ReadOnly {
+			t.Errorf("unexpected s3 volume %+v / mount %+v", v, m)
+		}
+	}
+}
+
 func TestApplyBackupResult(t *testing.T) {
 	at := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 	earlier := metav1.Time{Time: at.Add(-time.Hour)}

@@ -86,8 +86,8 @@ type SaveGameSpec struct {
 }
 
 // SaveGameDestination is a named backup destination. Exactly one type field must be set.
-// +kubebuilder:validation:XValidation:rule="[has(self.server), has(self.pvc)].filter(x, x).size() == 1",message="exactly one destination type must be set"
-// +kubebuilder:validation:XValidation:rule="!has(self.pvc) || size(self.name) <= 58",message="pvc destination names must be at most 58 characters (the Job volume is dest-<name>)"
+// +kubebuilder:validation:XValidation:rule="[has(self.server), has(self.pvc), has(self.s3)].filter(x, x).size() == 1",message="exactly one destination type must be set"
+// +kubebuilder:validation:XValidation:rule="!(has(self.pvc) || has(self.s3)) || size(self.name) <= 58",message="pvc and s3 destination names must be at most 58 characters (the Job volume is dest-<name>)"
 type SaveGameDestination struct {
 	// Name identifies the destination in status. It must be a DNS label.
 	// +kubebuilder:validation:Required
@@ -106,6 +106,10 @@ type SaveGameDestination struct {
 	// PVC writes saves to an existing PersistentVolumeClaim in the SaveGame's namespace.
 	// +optional
 	PVC *PVCDestination `json:"pvc,omitempty"`
+
+	// S3 uploads saves to an existing bucket on AWS S3 or an S3-compatible store.
+	// +optional
+	S3 *S3Destination `json:"s3,omitempty"`
 }
 
 // ServerDestination keeps saves on the game server's own volume. It has no settings.
@@ -127,6 +131,51 @@ type PVCDestination struct {
 	// +kubebuilder:validation:XValidation:rule="!self.startsWith('/')",message="path must be relative"
 	// +kubebuilder:validation:XValidation:rule="!self.split('/').exists(s, s == '..')",message="path must not contain '..' segments"
 	Path string `json:"path,omitempty"`
+}
+
+// S3Destination uploads saves as <prefix>/<name>.sav objects. The bucket must exist.
+type S3Destination struct {
+	// Bucket is the name of an existing bucket.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=255
+	Bucket string `json:"bucket"`
+
+	// Prefix is an optional key prefix. Empty means the bucket root.
+	// +optional
+	// +kubebuilder:validation:MaxLength=512
+	Prefix string `json:"prefix,omitempty"`
+
+	// Endpoint is the URL of an S3-compatible store. Empty means AWS S3.
+	// +optional
+	// +kubebuilder:validation:Format=uri
+	// +kubebuilder:validation:MaxLength=2048
+	Endpoint string `json:"endpoint,omitempty"`
+
+	// Region is the bucket's region. Defaults to us-east-1.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	Region string `json:"region,omitempty"`
+
+	// ForcePathStyle uses path-style URLs (endpoint/bucket/key), which most S3-compatible
+	// stores need.
+	// +optional
+	ForcePathStyle bool `json:"forcePathStyle,omitempty"`
+
+	// CredentialsSecretRef names a Secret in the SaveGame's namespace with the keys
+	// AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY. Without it the SDK's default credential
+	// chain is used.
+	// +optional
+	CredentialsSecretRef *S3CredentialsSecretRef `json:"credentialsSecretRef,omitempty"`
+}
+
+// S3CredentialsSecretRef references a Secret in the SaveGame's namespace.
+type S3CredentialsSecretRef struct {
+	// Name is the Secret's name.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name"`
 }
 
 // SaveGameDestinationStatus is the outcome of the latest backup run for one destination.

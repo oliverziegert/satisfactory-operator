@@ -107,6 +107,53 @@ spec:
                           minimum: 1
                           type: integer
                       type: object
+                    s3:
+                      description: S3 uploads saves to an existing bucket on AWS S3
+                        or an S3-compatible store.
+                      properties:
+                        bucket:
+                          description: Bucket is the name of an existing bucket.
+                          maxLength: 255
+                          minLength: 1
+                          type: string
+                        credentialsSecretRef:
+                          description: |-
+                            CredentialsSecretRef names a Secret in the SaveGame's namespace with the keys
+                            AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY. Without it the SDK's default credential
+                            chain is used.
+                          properties:
+                            name:
+                              description: Name is the Secret's name.
+                              maxLength: 253
+                              minLength: 1
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        endpoint:
+                          description: Endpoint is the URL of an S3-compatible store.
+                            Empty means AWS S3.
+                          format: uri
+                          maxLength: 2048
+                          type: string
+                        forcePathStyle:
+                          description: |-
+                            ForcePathStyle uses path-style URLs (endpoint/bucket/key), which most S3-compatible
+                            stores need.
+                          type: boolean
+                        prefix:
+                          description: Prefix is an optional key prefix. Empty means
+                            the bucket root.
+                          maxLength: 512
+                          type: string
+                        region:
+                          description: Region is the bucket's region. Defaults to
+                            us-east-1.
+                          maxLength: 64
+                          type: string
+                      required:
+                      - bucket
+                      type: object
                     server:
                       description: Server keeps the save on the game server.
                       type: object
@@ -115,11 +162,12 @@ spec:
                   type: object
                   x-kubernetes-validations:
                   - message: exactly one destination type must be set
-                    rule: '[has(self.server), has(self.pvc)].filter(x, x).size() ==
-                      1'
-                  - message: pvc destination names must be at most 58 characters (the
-                      Job volume is dest-<name>)
-                    rule: '!has(self.pvc) || size(self.name) <= 58'
+                    rule: '[has(self.server), has(self.pvc), has(self.s3)].filter(x,
+                      x).size() == 1'
+                  - message: pvc and s3 destination names must be at most 58 characters
+                      (the Job volume is dest-<name>)
+                    rule: '!(has(self.pvc) || has(self.s3)) || size(self.name) <=
+                      58'
                 maxItems: 10
                 type: array
                 x-kubernetes-list-map-keys:

@@ -190,6 +190,117 @@ spec:
 		Expect(strings.TrimSpace(mustRun("kubectl", "logs", "ls-backups", "-n", "games"))).
 			To(MatchRegexp(`^e2epvc_\d{8}-\d{6}\.sav$`))
 	})
+
+	It("should upload the save to an s3 destination", func() {
+		apply(`apiVersion: v1
+kind: Secret
+metadata:
+  name: s3-creds
+  namespace: games
+stringData:
+  AWS_ACCESS_KEY_ID: e2ekey
+  AWS_SECRET_ACCESS_KEY: e2esecret123
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rustfs
+  namespace: games
+  labels:
+    app: rustfs
+spec:
+  containers:
+  - name: rustfs
+    image: rustfs/rustfs:latest
+    env:
+    - name: RUSTFS_ACCESS_KEY
+      value: e2ekey
+    - name: RUSTFS_SECRET_KEY
+      value: e2esecret123
+    ports:
+    - containerPort: 9000
+    readinessProbe:
+      tcpSocket:
+        port: 9000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustfs
+  namespace: games
+spec:
+  selector:
+    app: rustfs
+  ports:
+  - port: 9000
+`)
+		mustRun("kubectl", "wait", "pod/rustfs", "-n", "games", "--for=condition=Ready", "--timeout=3m")
+
+		awsCLI := func(name string, args ...string) string {
+			GinkgoHelper()
+			quoted := `"` + strings.Join(args, `", "`) + `"`
+			apply(fmt.Sprintf(`apiVersion: v1
+kind: Pod
+metadata:
+  name: %s
+  namespace: games
+spec:
+  restartPolicy: Never
+  containers:
+  - name: aws
+    image: amazon/aws-cli:latest
+    args: ["--endpoint-url", "http://rustfs.games:9000", %s]
+    envFrom:
+    - secretRef:
+        name: s3-creds
+    env:
+    - name: AWS_DEFAULT_REGION
+      value: us-east-1
+`, name, quoted))
+			Eventually(func(g Gomega) {
+				out, err := utils.Run(exec.Command("kubectl", "get", "pod", name, "-n", "games",
+					"-o", "jsonpath={.status.phase}"))
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(out).To(Equal("Succeeded"))
+			}).Should(Succeed())
+			return mustRun("kubectl", "logs", name, "-n", "games")
+		}
+
+		By("creating the bucket")
+		awsCLI("s3-mb", "s3", "mb", "s3://backups")
+
+		apply(fmt.Sprintf(`apiVersion: %s/v1alpha1
+kind: SaveGame
+metadata:
+  name: tos3
+  namespace: games
+spec:
+  serverRef: srv
+  saveName: e2es3
+  destinations:
+  - name: offsite
+    s3:
+      bucket: backups
+      prefix: factory
+      endpoint: http://rustfs.games:9000
+      forcePathStyle: true
+      credentialsSecretRef:
+        name: s3-creds
+`, crdGroup))
+
+		By("waiting for the backup Job to complete and the SaveGame to be Ready")
+		Eventually(func(g Gomega) {
+			out, err := utils.Run(exec.Command("kubectl", "get", "savegame", "tos3", "-n", "games", "-o",
+				`jsonpath={.status.phase} {.status.conditions[?(@.type=="Ready")].status} `+
+					`{.status.destinations[*].name} {.status.destinations[*].retainedCount}`))
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(out).To(Equal("Completed True offsite 1"))
+		}).Should(Succeed())
+
+		By("listing the bucket")
+		Expect(awsCLI("s3-ls", "s3", "ls", "s3://backups/factory/")).
+			To(MatchRegexp(`\se2es3_\d{8}-\d{6}\.sav\n?$`))
+	})
 })
 
 // apply pipes manifests into kubectl apply.

@@ -129,7 +129,7 @@ spec:
     server: {}
 ```
 
-The destination types are `server` and `pvc`. Each destination may set its own `retentionPolicy`; otherwise `spec.retentionPolicy` applies. Retention only touches saves named `<saveName>_*`:
+The destination types are `server`, `pvc` and `s3`. Each destination may set its own `retentionPolicy`; otherwise `spec.retentionPolicy` applies. Retention only touches saves named `<saveName>_*`:
 
 ```yaml
 apiVersion: satisfactory.oliverziegert.github.com/v1alpha1
@@ -174,6 +174,61 @@ spec:
 Without a `server` destination, the Job removes the save from the game server once every destination has it.
 
 Files are written under a temporary name, verified by SHA-256 and then renamed, so a `.sav` file is never partial. Pick the access mode with care: a `ReadWriteOnce` claim that is attached on another node keeps the Job `Pending` until its 30-minute deadline fails the run. Use a `ReadWriteMany` claim, or give each SaveGame its own claim. The Job runs as user and group 65532 and sets `fsGroup: 65532`. Volumes that ignore `fsGroup`, such as many NFS exports, must allow writes from GID 65532 (or UID 65532).
+
+#### S3 destination
+
+An `s3` destination uploads `<prefix>/<saveName>_<timestamp>.sav` objects to AWS S3 or an S3-compatible store (RustFS, Garage, Backblaze B2, Cloudflare R2, Hetzner, ...). The bucket must already exist; the operator never creates it. Uploads send a SHA-256 checksum, so the store verifies the bytes, and a single upload is limited to 5 GiB. `region` defaults to `us-east-1`.
+
+AWS S3:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aws-creds
+stringData:
+  AWS_ACCESS_KEY_ID: AKIA...
+  AWS_SECRET_ACCESS_KEY: ...
+---
+apiVersion: satisfactory.oliverziegert.github.com/v1alpha1
+kind: SaveGame
+metadata:
+  name: nightly-aws
+spec:
+  serverRef: my-satisfactory-server
+  saveName: nightly
+  schedule: "0 3 * * *"
+  destinations:
+  - name: aws
+    s3:
+      bucket: satisfactory-backups
+      prefix: prod/factory
+      region: eu-central-1
+      credentialsSecretRef:
+        name: aws-creds
+    retentionPolicy:
+      maxCount: 30
+```
+
+An S3-compatible store sets `endpoint`, and usually `forcePathStyle: true`:
+
+```yaml
+  destinations:
+  - name: offsite
+    s3:
+      bucket: satisfactory-backups
+      prefix: factory
+      endpoint: https://s3.example.com
+      forcePathStyle: true
+      credentialsSecretRef:
+        name: s3-creds
+```
+
+The Secret lives in the SaveGame's namespace and needs the keys `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. Each `s3` destination mounts its own Secret read-only into the Job, so destinations with different credentials can share a SaveGame. If the Secret is missing or a key is empty when a backup is due, no Job is created, and the SaveGame shows `Ready=False` with reason `CredentialsSecretInvalid` until it's fixed.
+
+Without `credentialsSecretRef`, the AWS SDK's default credential chain is used. The Job runs under the namespace's `default` ServiceAccount with no token mounted, so in practice that chain only reaches the node's instance profile (EC2 IMDS). IRSA and EKS Pod Identity are not supported yet.
+
+`pvc` and `s3` destination names are limited to 58 characters, because the Job volume is named `dest-<name>`.
 
 `status.destinations` shows each destination's last success, size, retained count and last error. A failed destination sets `Ready=False` with reason `DestinationFailed`. A failed run is not retried before the next schedule tick.
 

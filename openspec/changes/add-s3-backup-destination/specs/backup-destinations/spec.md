@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: S3 destination
-The `s3` destination type SHALL upload saves as `<prefix>/<saveName>_<timestamp>.sav` objects into an existing bucket. It SHALL support AWS S3 and S3-compatible stores through an optional `endpoint`, an optional `region` (default `us-east-1`) and an optional `forcePathStyle`. Uploads SHALL send a SHA-256 checksum. Uploads of any size SHALL work without the size being known in advance.
+The `s3` destination type SHALL upload saves as `<prefix>/<saveName>_<timestamp>.sav` objects into an existing bucket. It SHALL support AWS S3 and S3-compatible stores through an optional `endpoint`, an optional `region` (default `us-east-1`) and an optional `forcePathStyle`. Uploads SHALL send a SHA-256 checksum. Uploads SHALL be a single `PutObject` of the local file, which bounds a save at 5 GiB.
 
 #### Scenario: Upload to an S3-compatible store
 - **WHEN** a run has destination `{name: offsite, s3: {bucket: backups, prefix: factory, endpoint: https://rustfs.example, forcePathStyle: true, credentialsSecretRef: {name: s3-creds}}}`

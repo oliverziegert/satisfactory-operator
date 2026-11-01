@@ -163,21 +163,13 @@ func (r *SaveGameReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.updateStatus(ctx, sg, satisfactoryv1alpha1.SaveGamePhaseFailed,
 			"BackupImageNotConfigured", "RELATED_IMAGE_BACKUP is not set on the operator", ctrl.Result{})
 	}
-	for _, d := range sg.Spec.Destinations {
-		if d.PVC == nil {
-			continue
+	if reason, msg, err := r.checkDestinations(ctx, sg); err != nil || reason != "" {
+		if err != nil {
+			return ctrl.Result{}, err
 		}
-		// PVCs are not watched, so a missing claim is retried on a timer.
-		pvc := &corev1.PersistentVolumeClaim{}
-		if err := r.Get(ctx, types.NamespacedName{Name: d.PVC.ClaimName, Namespace: sg.Namespace}, pvc); err != nil {
-			if !apierrors.IsNotFound(err) {
-				return ctrl.Result{}, fmt.Errorf("get PersistentVolumeClaim %s: %w", d.PVC.ClaimName, err)
-			}
-			return r.updateStatus(ctx, sg, satisfactoryv1alpha1.SaveGamePhasePending,
-				"BackupVolumeNotFound",
-				fmt.Sprintf("PersistentVolumeClaim %q of destination %q not found", d.PVC.ClaimName, d.Name),
-				ctrl.Result{RequeueAfter: saveGameRetryInterval})
-		}
+		// PVCs and Secrets are not watched, so a missing one is retried on a timer.
+		return r.updateStatus(ctx, sg, satisfactoryv1alpha1.SaveGamePhasePending, reason, msg,
+			ctrl.Result{RequeueAfter: saveGameRetryInterval})
 	}
 	server, err := r.authenticatedServer(ctx, sg.Spec.ServerRef, sg.Namespace)
 	if err != nil {
@@ -351,4 +343,38 @@ func (r *SaveGameReconciler) saveGamesForServer(ctx context.Context, obj client.
 		reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&sg)})
 	}
 	return reqs
+}
+
+// checkDestinations returns a Ready=False reason and message if a destination's claim or
+// credentials Secret is not usable yet. Secret values are only checked for presence.
+func (r *SaveGameReconciler) checkDestinations(ctx context.Context, sg *satisfactoryv1alpha1.SaveGame) (string, string, error) {
+	for _, d := range sg.Spec.Destinations {
+		switch {
+		case d.PVC != nil:
+			pvc := &corev1.PersistentVolumeClaim{}
+			if err := r.Get(ctx, types.NamespacedName{Name: d.PVC.ClaimName, Namespace: sg.Namespace}, pvc); err != nil {
+				if !apierrors.IsNotFound(err) {
+					return "", "", fmt.Errorf("get PersistentVolumeClaim %s: %w", d.PVC.ClaimName, err)
+				}
+				return "BackupVolumeNotFound",
+					fmt.Sprintf("PersistentVolumeClaim %q of destination %q not found", d.PVC.ClaimName, d.Name), nil
+			}
+		case d.S3 != nil && d.S3.CredentialsSecretRef != nil:
+			name := d.S3.CredentialsSecretRef.Name
+			secret := &corev1.Secret{}
+			if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: sg.Namespace}, secret); err != nil {
+				if !apierrors.IsNotFound(err) {
+					return "", "", fmt.Errorf("get Secret %s: %w", name, err)
+				}
+				return "CredentialsSecretInvalid", fmt.Sprintf("Secret %q of destination %q not found", name, d.Name), nil
+			}
+			for _, key := range []string{backup.S3AccessKeyIDKey, backup.S3SecretAccessKeyKey} {
+				if len(secret.Data[key]) == 0 {
+					return "CredentialsSecretInvalid",
+						fmt.Sprintf("Secret %q of destination %q has no non-empty key %s", name, d.Name, key), nil
+				}
+			}
+		}
+	}
+	return "", "", nil
 }

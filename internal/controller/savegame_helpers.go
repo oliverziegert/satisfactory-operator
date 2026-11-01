@@ -219,15 +219,24 @@ func buildBackupJob(
 	}
 	pod := &job.Spec.Template.Spec
 	for _, d := range sg.Spec.Destinations {
-		if d.PVC == nil {
-			continue
-		}
 		vol := "dest-" + d.Name
-		pod.Volumes = append(pod.Volumes, corev1.Volume{Name: vol, VolumeSource: corev1.VolumeSource{
-			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: d.PVC.ClaimName},
-		}})
-		pod.Containers[0].VolumeMounts = append(pod.Containers[0].VolumeMounts,
-			corev1.VolumeMount{Name: vol, MountPath: path.Join(backup.PVCMountRoot, d.Name)})
+		switch {
+		case d.PVC != nil:
+			pod.Volumes = append(pod.Volumes, corev1.Volume{Name: vol, VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: d.PVC.ClaimName},
+			}})
+			pod.Containers[0].VolumeMounts = append(pod.Containers[0].VolumeMounts,
+				corev1.VolumeMount{Name: vol, MountPath: path.Join(backup.PVCMountRoot, d.Name)})
+		case d.S3 != nil && d.S3.CredentialsSecretRef != nil:
+			pod.Volumes = append(pod.Volumes, corev1.Volume{Name: vol, VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{SecretName: d.S3.CredentialsSecretRef.Name, Items: []corev1.KeyToPath{
+					{Key: backup.S3AccessKeyIDKey, Path: backup.S3AccessKeyIDKey},
+					{Key: backup.S3SecretAccessKeyKey, Path: backup.S3SecretAccessKeyKey},
+				}},
+			}})
+			pod.Containers[0].VolumeMounts = append(pod.Containers[0].VolumeMounts,
+				corev1.VolumeMount{Name: vol, MountPath: path.Join(backup.S3CredentialsRoot, d.Name), ReadOnly: true})
+		}
 	}
 	if err := controllerutil.SetControllerReference(sg, job, scheme); err != nil {
 		return nil, fmt.Errorf("set owner reference: %w", err)

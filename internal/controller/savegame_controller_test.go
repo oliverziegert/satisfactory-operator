@@ -147,6 +147,18 @@ var _ = Describe("SaveGame Controller", func() {
 			{Name: "nas", Server: &satisfactoryv1alpha1.ServerDestination{},
 				PVC: &satisfactoryv1alpha1.PVCDestination{ClaimName: "backups"}},
 		}, "exactly one destination type must be set"),
+		Entry("valid s3 destination", []satisfactoryv1alpha1.SaveGameDestination{
+			{Name: "offsite", S3: &satisfactoryv1alpha1.S3Destination{Bucket: "backups", Prefix: "factory",
+				Endpoint: "https://rustfs.example", ForcePathStyle: true,
+				CredentialsSecretRef: &satisfactoryv1alpha1.S3CredentialsSecretRef{Name: "s3-creds"}}},
+		}, ""),
+		Entry("s3 without bucket", []satisfactoryv1alpha1.SaveGameDestination{
+			{Name: "offsite", S3: &satisfactoryv1alpha1.S3Destination{}},
+		}, "spec.destinations[0].s3.bucket"),
+		Entry("s3 and pvc in one entry", []satisfactoryv1alpha1.SaveGameDestination{
+			{Name: "offsite", S3: &satisfactoryv1alpha1.S3Destination{Bucket: "backups"},
+				PVC: &satisfactoryv1alpha1.PVCDestination{ClaimName: "backups"}},
+		}, "exactly one destination type must be set"),
 	)
 
 	It("marks the SaveGame Failed when the server does not exist", func() {
@@ -247,6 +259,51 @@ var _ = Describe("SaveGame Controller", func() {
 			},
 		})
 		reconcileAndGet("sg-pvc")
+		Expect(jobs()).To(HaveLen(1))
+		job := jobs()[0]
+		DeferCleanup(func() {
+			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &job,
+				client.PropagationPolicy(metav1.DeletePropagationBackground)))).To(Succeed())
+		})
+	})
+
+	It("checks the s3 credentials Secret before creating a Job", func() {
+		reachableServer()
+		create(&satisfactoryv1alpha1.SaveGame{
+			ObjectMeta: metav1.ObjectMeta{Name: "sg-s3", Namespace: "default"},
+			Spec: satisfactoryv1alpha1.SaveGameSpec{ServerRef: "sg-srv", SaveName: "save",
+				Destinations: []satisfactoryv1alpha1.SaveGameDestination{
+					{Name: "offsite", S3: &satisfactoryv1alpha1.S3Destination{Bucket: "backups",
+						CredentialsSecretRef: &satisfactoryv1alpha1.S3CredentialsSecretRef{Name: "sg-s3-creds"}}},
+				}},
+		})
+		expectInvalid := func(wantMsg string) {
+			res, sg := reconcileAndGet("sg-s3")
+			Expect(jobs()).To(BeEmpty())
+			Expect(res.RequeueAfter).To(Equal(saveGameRetryInterval))
+			ready := meta.FindStatusCondition(sg.Status.Conditions, satisfactoryv1alpha1.SaveGameConditionTypeReady)
+			Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+			Expect(ready.Reason).To(Equal("CredentialsSecretInvalid"))
+			Expect(ready.Message).To(ContainSubstring("sg-s3-creds"))
+			Expect(ready.Message).To(ContainSubstring(wantMsg))
+			Expect(ready.Message).NotTo(ContainSubstring("AKIDVALUE"))
+		}
+
+		By("creating no Job while the Secret is missing")
+		expectInvalid("not found")
+
+		By("creating no Job while a key is missing")
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "sg-s3-creds", Namespace: "default"},
+			Data:       map[string][]byte{"AWS_ACCESS_KEY_ID": []byte("AKIDVALUE")},
+		}
+		create(secret)
+		expectInvalid("AWS_SECRET_ACCESS_KEY")
+
+		By("creating the Job once the Secret is valid")
+		secret.Data["AWS_SECRET_ACCESS_KEY"] = []byte("s3cr3t")
+		Expect(k8sClient.Update(ctx, secret)).To(Succeed())
+		reconcileAndGet("sg-s3")
 		Expect(jobs()).To(HaveLen(1))
 		job := jobs()[0]
 		DeferCleanup(func() {
