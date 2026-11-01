@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: S3 destination
-The `s3` destination type SHALL upload saves as `<prefix>/<saveName>_<timestamp>.sav` objects into an existing bucket. It SHALL support AWS S3 and S3-compatible stores through an optional `endpoint`, an optional `region` (default `us-east-1`) and an optional `forcePathStyle`. Uploads SHALL send a SHA-256 checksum. Uploads SHALL be a single `PutObject` of the local file, which bounds a save at 5 GiB.
+The `s3` destination type SHALL upload saves as `<prefix>/<saveName>_<timestamp>.sav` objects into an existing bucket. It SHALL support AWS S3 and S3-compatible stores through an optional `endpoint`, an optional `region` (default `us-east-1`) and an optional `forcePathStyle`. Uploads SHALL send a SHA-256 checksum. Uploads SHALL be a single `PutObject` of the local file, which bounds a save at 5 GiB. Its destination name SHALL be at most 58 characters, because the Job volume is `dest-<name>`.
 
 #### Scenario: Upload to an S3-compatible store
 - **WHEN** a run has destination `{name: offsite, s3: {bucket: backups, prefix: factory, endpoint: https://rustfs.example, forcePathStyle: true, credentialsSecretRef: {name: s3-creds}}}`
@@ -16,6 +16,10 @@ The `s3` destination type SHALL upload saves as `<prefix>/<saveName>_<timestamp>
 #### Scenario: Bucket missing
 - **WHEN** the bucket doesn't exist
 - **THEN** the destination reports failure with an error containing `NoSuchBucket`, and the server copy stays
+
+#### Scenario: Destination name too long
+- **WHEN** a SaveGame has an `s3` destination whose name is 59 characters long
+- **THEN** the API server rejects it
 
 ### Requirement: S3 credentials
 When `credentialsSecretRef` is set, the destination SHALL authenticate with the `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` keys of that Secret in the SaveGame's namespace, independently of other `s3` destinations. When it is not set, the destination SHALL use the SDK's default credential chain. Credential values SHALL NOT appear in status, Events or logs.
