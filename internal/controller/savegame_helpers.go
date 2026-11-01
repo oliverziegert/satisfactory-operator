@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
@@ -167,6 +168,9 @@ func buildBackupJob(
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot:   ptr.To(true),
 						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+						// The distroless nonroot group, so the Job can write to fresh pvc destinations.
+						FSGroup:             ptr.To[int64](65532),
+						FSGroupChangePolicy: ptr.To(corev1.FSGroupChangeOnRootMismatch),
 					},
 					Containers: []corev1.Container{{
 						Name:            backupContainerName,
@@ -212,6 +216,18 @@ func buildBackupJob(
 				},
 			},
 		},
+	}
+	pod := &job.Spec.Template.Spec
+	for _, d := range sg.Spec.Destinations {
+		if d.PVC == nil {
+			continue
+		}
+		vol := "dest-" + d.Name
+		pod.Volumes = append(pod.Volumes, corev1.Volume{Name: vol, VolumeSource: corev1.VolumeSource{
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: d.PVC.ClaimName},
+		}})
+		pod.Containers[0].VolumeMounts = append(pod.Containers[0].VolumeMounts,
+			corev1.VolumeMount{Name: vol, MountPath: path.Join(backup.PVCMountRoot, d.Name)})
 	}
 	if err := controllerutil.SetControllerReference(sg, job, scheme); err != nil {
 		return nil, fmt.Errorf("set owner reference: %w", err)

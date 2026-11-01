@@ -66,6 +66,30 @@ spec:
                       maxLength: 63
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                       type: string
+                    pvc:
+                      description: PVC writes saves to an existing PersistentVolumeClaim
+                        in the SaveGame's namespace.
+                      properties:
+                        claimName:
+                          description: ClaimName is the name of the PersistentVolumeClaim
+                            in the SaveGame's namespace.
+                          maxLength: 253
+                          minLength: 1
+                          type: string
+                        path:
+                          description: |-
+                            Path is an optional subdirectory on the claim. It must be relative and must not
+                            contain ".." segments. It is created if missing.
+                          maxLength: 256
+                          type: string
+                          x-kubernetes-validations:
+                          - message: path must be relative
+                            rule: '!self.startsWith(''/'')'
+                          - message: path must not contain '..' segments
+                            rule: '!self.split(''/'').exists(s, s == ''..'')'
+                      required:
+                      - claimName
+                      type: object
                     retentionPolicy:
                       description: RetentionPolicy overrides spec.retentionPolicy
                         for this destination.
@@ -91,7 +115,11 @@ spec:
                   type: object
                   x-kubernetes-validations:
                   - message: exactly one destination type must be set
-                    rule: '[has(self.server)].filter(x, x).size() == 1'
+                    rule: '[has(self.server), has(self.pvc)].filter(x, x).size() ==
+                      1'
+                  - message: pvc destination names must be at most 58 characters (the
+                      Job volume is dest-<name>)
+                    rule: '!has(self.pvc) || size(self.name) <= 58'
                 maxItems: 10
                 type: array
                 x-kubernetes-list-map-keys:

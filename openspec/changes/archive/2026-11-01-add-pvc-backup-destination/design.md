@@ -17,7 +17,8 @@
 ## Decisions
 
 - **User-owned PVC with an optional `path`.** CEL rules on `path`: it must be relative, must not contain `..` segments, and must be at most 256 characters. The Job creates `path` with `MkdirAll` if it's missing.
-- **One mount per destination.** The volume name is `dest-<name>`, mounted at `/backup/<name>`. Two destinations may reference the same claim with different paths; Kubernetes then mounts the same claim twice in one pod, which is allowed.
+- **One mount per destination.** The volume name is `dest-<name>`, mounted at `/backup/<name>`. Two destinations may reference the same claim with different paths; Kubernetes then mounts the same claim twice in one pod, which is allowed. A volume name is a DNS label of at most 63 characters, so a CEL rule caps `pvc` destination names at 58.
+- **Save names stay inside the directory.** `spec.saveName` is not validated, so the `pvc` destination rejects names that contain a path separator or `..`.
 - **Atomic write.**
   1. Write to `<name>.sav.tmp`.
   2. `fsync` the file and close it.

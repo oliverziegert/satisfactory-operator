@@ -232,6 +232,31 @@ func TestBuildBackupJob(t *testing.T) {
 	if vols[0].EmptyDir.SizeLimit.String() != "2Gi" || vols[1].Secret.SecretName != "srv-auth-token" || !c.VolumeMounts[1].ReadOnly {
 		t.Errorf("unexpected volumes %+v / mounts %+v", vols, c.VolumeMounts)
 	}
+	if *pod.SecurityContext.FSGroup != 65532 || *pod.SecurityContext.FSGroupChangePolicy != corev1.FSGroupChangeOnRootMismatch {
+		t.Errorf("unexpected fsGroup %+v", pod.SecurityContext)
+	}
+	if len(vols) != 2 {
+		t.Errorf("server-only Job has extra volumes %+v", vols)
+	}
+}
+
+func TestBuildBackupJobPVCVolumes(t *testing.T) {
+	sg := newSaveGame("sg", "")
+	at := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	sg.Spec.Destinations = []satisfactoryv1alpha1.SaveGameDestination{
+		{Name: "local", Server: &satisfactoryv1alpha1.ServerDestination{}},
+		{Name: "nas", PVC: &satisfactoryv1alpha1.PVCDestination{ClaimName: "backups", Path: "factory"}},
+	}
+	job, err := buildBackupJob(sg, newTestScheme(t), "img:v1", "srv", "https://srv:7777", "save1_20261101-120000", at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pod := job.Spec.Template.Spec
+	vols, mounts := pod.Volumes, pod.Containers[0].VolumeMounts
+	if len(vols) != 3 || vols[2].Name != "dest-nas" || vols[2].PersistentVolumeClaim.ClaimName != "backups" ||
+		len(mounts) != 3 || mounts[2].Name != "dest-nas" || mounts[2].MountPath != "/backup/nas" || mounts[2].ReadOnly {
+		t.Errorf("unexpected pvc volumes %+v / mounts %+v", vols, mounts)
+	}
 }
 
 func TestApplyBackupResult(t *testing.T) {

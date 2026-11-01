@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"net/http/httptest"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -26,6 +27,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -129,6 +131,22 @@ var _ = Describe("SaveGame Controller", func() {
 		Entry("name not a DNS label",
 			[]satisfactoryv1alpha1.SaveGameDestination{{Name: "Off_Site", Server: &satisfactoryv1alpha1.ServerDestination{}}},
 			"should match"),
+		Entry("valid pvc destination", []satisfactoryv1alpha1.SaveGameDestination{
+			{Name: "nas", PVC: &satisfactoryv1alpha1.PVCDestination{ClaimName: "backups", Path: "factory/hourly"}},
+		}, ""),
+		Entry("pvc absolute path", []satisfactoryv1alpha1.SaveGameDestination{
+			{Name: "nas", PVC: &satisfactoryv1alpha1.PVCDestination{ClaimName: "backups", Path: "/etc"}},
+		}, "path must be relative"),
+		Entry("pvc path with ..", []satisfactoryv1alpha1.SaveGameDestination{
+			{Name: "nas", PVC: &satisfactoryv1alpha1.PVCDestination{ClaimName: "backups", Path: "a/../b"}},
+		}, "path must not contain '..' segments"),
+		Entry("pvc name too long for the volume name", []satisfactoryv1alpha1.SaveGameDestination{
+			{Name: strings.Repeat("a", 59), PVC: &satisfactoryv1alpha1.PVCDestination{ClaimName: "backups"}},
+		}, "at most 58 characters"),
+		Entry("pvc and server in one entry", []satisfactoryv1alpha1.SaveGameDestination{
+			{Name: "nas", Server: &satisfactoryv1alpha1.ServerDestination{},
+				PVC: &satisfactoryv1alpha1.PVCDestination{ClaimName: "backups"}},
+		}, "exactly one destination type must be set"),
 	)
 
 	It("marks the SaveGame Failed when the server does not exist", func() {
@@ -197,6 +215,44 @@ var _ = Describe("SaveGame Controller", func() {
 		Expect(sg.Status.Destinations[0].LastSuccessTime).NotTo(BeNil())
 		Expect(res.RequeueAfter).To(BeNumerically("<=", time.Hour))
 		Expect(jobs()).To(HaveLen(1), "no new Job before the next tick")
+	})
+
+	It("waits for a missing pvc destination claim before creating a Job", func() {
+		reachableServer()
+		create(&satisfactoryv1alpha1.SaveGame{
+			ObjectMeta: metav1.ObjectMeta{Name: "sg-pvc", Namespace: "default"},
+			Spec: satisfactoryv1alpha1.SaveGameSpec{ServerRef: "sg-srv", SaveName: "save",
+				Destinations: []satisfactoryv1alpha1.SaveGameDestination{
+					{Name: "nas", PVC: &satisfactoryv1alpha1.PVCDestination{ClaimName: "sg-backups"}},
+				}},
+		})
+
+		By("creating no Job while the claim is missing")
+		res, sg := reconcileAndGet("sg-pvc")
+		Expect(jobs()).To(BeEmpty())
+		Expect(res.RequeueAfter).To(Equal(saveGameRetryInterval))
+		ready := meta.FindStatusCondition(sg.Status.Conditions, satisfactoryv1alpha1.SaveGameConditionTypeReady)
+		Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+		Expect(ready.Reason).To(Equal("BackupVolumeNotFound"))
+		Expect(ready.Message).To(ContainSubstring("sg-backups"))
+
+		By("creating the Job once the claim exists")
+		create(&corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "sg-backups", Namespace: "default"},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				Resources: corev1.VolumeResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")},
+				},
+			},
+		})
+		reconcileAndGet("sg-pvc")
+		Expect(jobs()).To(HaveLen(1))
+		job := jobs()[0]
+		DeferCleanup(func() {
+			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &job,
+				client.PropagationPolicy(metav1.DeletePropagationBackground)))).To(Succeed())
+		})
 	})
 
 	It("reports BackupImageNotConfigured without creating a Job", func() {

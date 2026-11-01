@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: PVC destination
-The `pvc` destination type SHALL write saves as `<saveName>_<timestamp>.sav` files into an existing, user-owned PersistentVolumeClaim in the SaveGame's namespace, under an optional relative `path`. The operator SHALL NOT create, modify or delete the claim. The API server SHALL reject a `path` that is absolute or contains a `..` segment.
+The `pvc` destination type SHALL write saves as `<saveName>_<timestamp>.sav` files into an existing, user-owned PersistentVolumeClaim in the SaveGame's namespace, under an optional relative `path`. The operator SHALL NOT create, modify or delete the claim. The API server SHALL reject a `path` that is absolute or contains a `..` segment, and a `pvc` destination name longer than 58 characters (the Job volume is named `dest-<name>`).
 
 #### Scenario: Save written to the volume
 - **WHEN** a run has destination `{name: nas, pvc: {claimName: backups, path: factory}}`
@@ -13,9 +13,20 @@ The `pvc` destination type SHALL write saves as `<saveName>_<timestamp>.sav` fil
 - **WHEN** a SaveGame sets `pvc.path: ../other`
 - **THEN** the API server rejects it
 
+#### Scenario: Destination name too long
+- **WHEN** a SaveGame has a `pvc` destination whose name is 59 characters long
+- **THEN** the API server rejects it
+
 #### Scenario: SaveGame deleted
 - **WHEN** a SaveGame with a `pvc` destination is deleted
 - **THEN** the claim and its files remain
+
+### Requirement: PVC save name containment
+The `pvc` destination SHALL refuse save names that contain a path separator or `..`, so that a save never lands outside the destination directory.
+
+#### Scenario: Save name with a separator
+- **WHEN** a run writes the save name `../evil` to a `pvc` destination
+- **THEN** the write fails and no file is created outside the destination directory
 
 ### Requirement: Atomic PVC writes
 The `pvc` destination SHALL write to a temporary file, sync it, verify its SHA-256 against the downloaded save, and only then rename it to its final `.sav` name. Listing and retention SHALL ignore temporary files.

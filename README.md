@@ -129,7 +129,7 @@ spec:
     server: {}
 ```
 
-`server` is the only destination type so far. Each destination may set its own `retentionPolicy`; otherwise `spec.retentionPolicy` applies. Retention only touches saves named `<saveName>_*`:
+The destination types are `server` and `pvc`. Each destination may set its own `retentionPolicy`; otherwise `spec.retentionPolicy` applies. Retention only touches saves named `<saveName>_*`:
 
 ```yaml
 apiVersion: satisfactory.oliverziegert.github.com/v1alpha1
@@ -148,6 +148,32 @@ spec:
     retentionPolicy:
       maxCount: 3
 ```
+
+#### PVC destination
+
+A `pvc` destination writes `<saveName>_<timestamp>.sav` files to a PersistentVolumeClaim, such as NFS or Longhorn, under an optional relative `path`. The claim belongs to you: it must already exist in the SaveGame's namespace, and the operator never creates, changes or deletes it. Deleting the SaveGame or the server leaves the claim and its files alone. If the claim is missing when a backup is due, no Job is created, and the SaveGame shows `Ready=False` with reason `BackupVolumeNotFound` until the claim exists.
+
+```yaml
+apiVersion: satisfactory.oliverziegert.github.com/v1alpha1
+kind: SaveGame
+metadata:
+  name: nightly-nas
+spec:
+  serverRef: my-satisfactory-server
+  saveName: nightly
+  schedule: "0 3 * * *"
+  destinations:
+  - name: nas
+    pvc:
+      claimName: satisfactory-backups
+      path: factory
+    retentionPolicy:
+      maxCount: 30
+```
+
+Without a `server` destination, the Job removes the save from the game server once every destination has it.
+
+Files are written under a temporary name, verified by SHA-256 and then renamed, so a `.sav` file is never partial. Pick the access mode with care: a `ReadWriteOnce` claim that is attached on another node keeps the Job `Pending` until its 30-minute deadline fails the run. Use a `ReadWriteMany` claim, or give each SaveGame its own claim. The Job runs as user and group 65532 and sets `fsGroup: 65532`. Volumes that ignore `fsGroup`, such as many NFS exports, must allow writes from GID 65532 (or UID 65532).
 
 `status.destinations` shows each destination's last success, size, retained count and last error. A failed destination sets `Ready=False` with reason `DestinationFailed`. A failed run is not retried before the next schedule tick.
 

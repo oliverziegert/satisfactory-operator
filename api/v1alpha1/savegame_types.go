@@ -86,7 +86,8 @@ type SaveGameSpec struct {
 }
 
 // SaveGameDestination is a named backup destination. Exactly one type field must be set.
-// +kubebuilder:validation:XValidation:rule="[has(self.server)].filter(x, x).size() == 1",message="exactly one destination type must be set"
+// +kubebuilder:validation:XValidation:rule="[has(self.server), has(self.pvc)].filter(x, x).size() == 1",message="exactly one destination type must be set"
+// +kubebuilder:validation:XValidation:rule="!has(self.pvc) || size(self.name) <= 58",message="pvc destination names must be at most 58 characters (the Job volume is dest-<name>)"
 type SaveGameDestination struct {
 	// Name identifies the destination in status. It must be a DNS label.
 	// +kubebuilder:validation:Required
@@ -101,10 +102,32 @@ type SaveGameDestination struct {
 	// Server keeps the save on the game server.
 	// +optional
 	Server *ServerDestination `json:"server,omitempty"`
+
+	// PVC writes saves to an existing PersistentVolumeClaim in the SaveGame's namespace.
+	// +optional
+	PVC *PVCDestination `json:"pvc,omitempty"`
 }
 
 // ServerDestination keeps saves on the game server's own volume. It has no settings.
 type ServerDestination struct{}
+
+// PVCDestination writes saves to a user-owned PersistentVolumeClaim. The operator never
+// creates, modifies or deletes the claim.
+type PVCDestination struct {
+	// ClaimName is the name of the PersistentVolumeClaim in the SaveGame's namespace.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	ClaimName string `json:"claimName"`
+
+	// Path is an optional subdirectory on the claim. It must be relative and must not
+	// contain ".." segments. It is created if missing.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:XValidation:rule="!self.startsWith('/')",message="path must be relative"
+	// +kubebuilder:validation:XValidation:rule="!self.split('/').exists(s, s == '..')",message="path must not contain '..' segments"
+	Path string `json:"path,omitempty"`
+}
 
 // SaveGameDestinationStatus is the outcome of the latest backup run for one destination.
 type SaveGameDestinationStatus struct {

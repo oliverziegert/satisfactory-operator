@@ -124,6 +124,72 @@ spec:
 		Expect(mustRun("kubectl", "logs", "srv-0", "-n", "games")).To(MatchRegexp(`SaveGame e2e_\d{8}-\d{6}`))
 	})
 
+	It("should write the save to a pvc destination", func() {
+		// Kind's default storage class (local-path, RWO); the server from the previous spec is reused.
+		apply(fmt.Sprintf(`apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backups
+  namespace: games
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 100Mi
+---
+apiVersion: %s/v1alpha1
+kind: SaveGame
+metadata:
+  name: topvc
+  namespace: games
+spec:
+  serverRef: srv
+  saveName: e2epvc
+  destinations:
+  - name: nas
+    pvc:
+      claimName: backups
+      path: factory
+`, crdGroup))
+
+		By("waiting for the backup Job to complete and the SaveGame to be Ready")
+		Eventually(func(g Gomega) {
+			out, err := utils.Run(exec.Command("kubectl", "get", "savegame", "topvc", "-n", "games", "-o",
+				`jsonpath={.status.phase} {.status.conditions[?(@.type=="Ready")].status} `+
+					`{.status.destinations[*].name} {.status.destinations[*].retainedCount}`))
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(out).To(Equal("Completed True nas 1"))
+		}).Should(Succeed())
+
+		By("listing the claim from another pod")
+		apply(`apiVersion: v1
+kind: Pod
+metadata:
+  name: ls-backups
+  namespace: games
+spec:
+  restartPolicy: Never
+  containers:
+  - name: ls
+    image: curlimages/curl:latest
+    command: [ls, /data/factory]
+    volumeMounts:
+    - name: backups
+      mountPath: /data
+  volumes:
+  - name: backups
+    persistentVolumeClaim:
+      claimName: backups
+`)
+		Eventually(func(g Gomega) {
+			out, err := utils.Run(exec.Command("kubectl", "get", "pod", "ls-backups", "-n", "games",
+				"-o", "jsonpath={.status.phase}"))
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(out).To(Equal("Succeeded"))
+		}).Should(Succeed())
+		Expect(strings.TrimSpace(mustRun("kubectl", "logs", "ls-backups", "-n", "games"))).
+			To(MatchRegexp(`^e2epvc_\d{8}-\d{6}\.sav$`))
+	})
 })
 
 // apply pipes manifests into kubectl apply.

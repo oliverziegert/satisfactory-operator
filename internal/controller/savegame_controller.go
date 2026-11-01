@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -84,6 +85,7 @@ type SaveGameReconciler struct {
 // +kubebuilder:rbac:groups=satisfactory.oliverziegert.github.com,resources=satisfactoryservers,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get
 
 // Reconcile records the result of the latest backup Job and creates the next Job when a
 // backup is due. Saving and retention run inside the Job.
@@ -160,6 +162,22 @@ func (r *SaveGameReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// Only a manager restart with RELATED_IMAGE_BACKUP set can fix this.
 		return r.updateStatus(ctx, sg, satisfactoryv1alpha1.SaveGamePhaseFailed,
 			"BackupImageNotConfigured", "RELATED_IMAGE_BACKUP is not set on the operator", ctrl.Result{})
+	}
+	for _, d := range sg.Spec.Destinations {
+		if d.PVC == nil {
+			continue
+		}
+		// PVCs are not watched, so a missing claim is retried on a timer.
+		pvc := &corev1.PersistentVolumeClaim{}
+		if err := r.Get(ctx, types.NamespacedName{Name: d.PVC.ClaimName, Namespace: sg.Namespace}, pvc); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return ctrl.Result{}, fmt.Errorf("get PersistentVolumeClaim %s: %w", d.PVC.ClaimName, err)
+			}
+			return r.updateStatus(ctx, sg, satisfactoryv1alpha1.SaveGamePhasePending,
+				"BackupVolumeNotFound",
+				fmt.Sprintf("PersistentVolumeClaim %q of destination %q not found", d.PVC.ClaimName, d.Name),
+				ctrl.Result{RequeueAfter: saveGameRetryInterval})
+		}
 	}
 	server, err := r.authenticatedServer(ctx, sg.Spec.ServerRef, sg.Namespace)
 	if err != nil {

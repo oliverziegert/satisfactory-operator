@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -81,6 +82,9 @@ func Targets(dests []satisfactoryv1alpha1.SaveGameDestination, game *satisfactor
 		switch {
 		case d.Server != nil:
 			t.Dest = &Server{Client: game}
+		case d.PVC != nil:
+			// The API server rejects absolute paths and ".." segments.
+			t.Dest = &PVC{Dir: filepath.Join(PVCMountRoot, d.Name, d.PVC.Path)}
 		default:
 			return nil, fmt.Errorf("destination %q has no type this binary supports", d.Name)
 		}
