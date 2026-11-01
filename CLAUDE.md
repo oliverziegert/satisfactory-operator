@@ -65,7 +65,7 @@ make helm-deploy IMG=<registry>/satisfactory-operator:tag
 6. Sets 7 condition types: Ready, Progressing, Degraded, ServerReachable, ServerClaimed, WorldLoaded, Authenticated
 7. Derives Phase (Pending/Running/Updating/Error) from conditions
 
-**SaveGameReconciler** resolves an authenticated client from the referenced server, triggers saves as `<saveName>_<UTC timestamp>`, enforces retention and requeues for the next cron tick (helpers in `savegame_helpers.go`). It watches SatisfactoryServer to react to server changes. Conditions: Ready, BackupScheduled. Phases: Pending/Active/Completed/Failed.
+**SaveGameReconciler** doesn't save itself. When a backup is due it refreshes the server's cached token and creates one Job at a time (`manager backup`, image from `RELATED_IMAGE_BACKUP`, `buildBackupJob` in `savegame_helpers.go`). The Job saves as `<saveName>_<UTC timestamp>`, downloads once, writes to each `spec.destinations` entry and applies retention (`internal/backup`). The reconciler reads the JSON result from the Job pod's termination message into status. `status.nextBackupTime` is set at Job creation, so a failed run waits for the next cron tick. It watches SatisfactoryServer and owned Jobs. Conditions: Ready, BackupScheduled. Phases: Pending/Active/Completed/Failed.
 
 **ClusterPolicyReconciler** uses the oldest ClusterPolicy (others get `Ready=False`, reason `MultiplePoliciesDetected`). It patches zero-valued SatisfactoryServer fields with the policy defaults and reports image-allowlist and per-namespace violations as Warning Events and in the `Enforced` condition. Violations don't block servers (helpers in `clusterpolicy_helpers.go`).
 
@@ -80,6 +80,10 @@ Typed HTTP client for the Satisfactory Dedicated Server HTTPS API (spec v0.2.1).
 - `settings.go` - Server settings calls (GetServerOptions, GetAdvancedGameSettings)
 
 All API calls use `POST /api/v1/?function=<name>` with JSON bodies. Responses wrap data in `{"data": {...}}`.
+
+### Backup Job (internal/backup/)
+
+`Destination` interface (`Put`/`List`/`Delete`/`Get`) with the `server` and `pvc` (atomic write to `/backup/<name>`) implementations, `Resolve` (empty `destinations` = `[{name: server, server: {}}]`, retention inherited from `spec.retentionPolicy`), and `Run.Do`, which produces the `Result` JSON. Without a `server` destination the Job deletes server copies only after every destination succeeded.
 
 ### Conditions Helper (internal/conditions/)
 

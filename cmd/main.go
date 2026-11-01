@@ -17,11 +17,17 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
+	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -42,7 +48,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	satisfactoryv1alpha1 "github.com/oliverziegert/satisfactory-operator/api/v1alpha1"
+	"github.com/oliverziegert/satisfactory-operator/internal/backup"
 	"github.com/oliverziegert/satisfactory-operator/internal/controller"
+	satisfactory "github.com/oliverziegert/satisfactory-operator/pkg/satisfactory"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -74,8 +82,66 @@ func watchNamespaces(flagValue, envValue string) []string {
 	return namespaces
 }
 
+// runBackup is the "manager backup" subcommand run by backup Jobs. It writes the JSON result
+// to resultPath and returns the exit code: 0 only if the save and every destination succeeded.
+func runBackup(ctx context.Context, args []string, resultPath string) int {
+	fs := flag.NewFlagSet("backup", flag.ContinueOnError)
+	serverURL := fs.String("server-url", "", "Game server HTTPS API base URL.")
+	saveName := fs.String("save-name", "", "Name of the save to create (<session-prefix>_<YYYYMMDD-HHMMSS>).")
+	prefix := fs.String("session-prefix", "", "spec.saveName; retention only considers <prefix>_* saves.")
+	config := fs.String("config", "[]", "JSON list of destinations with resolved retention.")
+	tokenFile := fs.String("token-file", "/var/run/satisfactory/token", "File holding the game API auth token.")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	res, err := func() (backup.Result, error) {
+		var dests []satisfactoryv1alpha1.SaveGameDestination
+		if err := json.Unmarshal([]byte(*config), &dests); err != nil {
+			return backup.Result{}, fmt.Errorf("parse --config: %w", err)
+		}
+		token, err := os.ReadFile(*tokenFile)
+		if err != nil {
+			return backup.Result{}, fmt.Errorf("read token: %w", err)
+		}
+		//nolint:gosec // self-signed cert expected
+		game := satisfactory.NewClient(*serverURL, &tls.Config{InsecureSkipVerify: true})
+		game.SetAuthToken(strings.TrimSpace(string(token)))
+		targets, err := backup.Targets(dests, game)
+		if err != nil {
+			return backup.Result{}, err
+		}
+		return backup.Run{
+			Game: game, SaveName: *saveName, Prefix: *prefix, Targets: targets, Dir: os.TempDir(), Now: time.Now(),
+		}.Do(ctx), nil
+	}()
+	if err != nil {
+		// No valid result: the reconciler reports BackupJobFailed with this message.
+		fmt.Fprintln(os.Stderr, err)
+		_ = os.WriteFile(resultPath, []byte(err.Error()), 0o644)
+		return 1
+	}
+
+	out, _ := json.Marshal(res)
+	fmt.Println(string(out))
+	if err := os.WriteFile(resultPath, out, 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, "write result:", err)
+	}
+	if !res.OK() {
+		return 1
+	}
+	return 0
+}
+
 // nolint:gocyclo
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "backup" {
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+		code := runBackup(ctx, os.Args[2:], "/dev/termination-log")
+		stop()
+		os.Exit(code)
+	}
+
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
@@ -249,8 +315,9 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controller.SaveGameReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		BackupImage: os.Getenv("RELATED_IMAGE_BACKUP"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SaveGame")
 		os.Exit(1)

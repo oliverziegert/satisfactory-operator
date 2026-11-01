@@ -4,3 +4,15 @@ images:
 - name: controller
   newName: ghcr.io/oliverziegert/satisfactory-operator
   newTag: v0.2.1 # x-release-please-version
+# Backup Jobs run the manager image; keep RELATED_IMAGE_BACKUP in sync with it.
+replacements:
+- source:
+    kind: Deployment
+    name: controller-manager
+    fieldPath: spec.template.spec.containers.[name=manager].image
+  targets:
+  - select:
+      kind: Deployment
+      name: controller-manager
+    fieldPaths:
+    - spec.template.spec.containers.[name=manager].env.[name=RELATED_IMAGE_BACKUP].value

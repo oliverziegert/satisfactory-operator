@@ -74,6 +74,81 @@ type SaveGameSpec struct {
 	// If empty, no automated backups are performed.
 	// +optional
 	Schedule string `json:"schedule,omitempty"`
+
+	// Destinations are where each backup is written. Empty means [{name: server, server: {}}],
+	// which keeps the save on the game server only.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:XValidation:rule="self.filter(d, has(d.server)).size() <= 1",message="at most one server destination is allowed"
+	Destinations []SaveGameDestination `json:"destinations,omitempty"`
+}
+
+// SaveGameDestination is a named backup destination. Exactly one type field must be set.
+// +kubebuilder:validation:XValidation:rule="[has(self.server), has(self.pvc)].filter(x, x).size() == 1",message="exactly one destination type must be set"
+// +kubebuilder:validation:XValidation:rule="!has(self.pvc) || size(self.name) <= 58",message="pvc destination names must be at most 58 characters (the Job volume is dest-<name>)"
+type SaveGameDestination struct {
+	// Name identifies the destination in status. It must be a DNS label.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	Name string `json:"name"`
+
+	// RetentionPolicy overrides spec.retentionPolicy for this destination.
+	// +optional
+	RetentionPolicy *SaveGameRetentionPolicy `json:"retentionPolicy,omitempty"`
+
+	// Server keeps the save on the game server.
+	// +optional
+	Server *ServerDestination `json:"server,omitempty"`
+
+	// PVC writes saves to an existing PersistentVolumeClaim in the SaveGame's namespace.
+	// +optional
+	PVC *PVCDestination `json:"pvc,omitempty"`
+}
+
+// ServerDestination keeps saves on the game server's own volume. It has no settings.
+type ServerDestination struct{}
+
+// PVCDestination writes saves to a user-owned PersistentVolumeClaim. The operator never
+// creates, modifies or deletes the claim.
+type PVCDestination struct {
+	// ClaimName is the name of the PersistentVolumeClaim in the SaveGame's namespace.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	ClaimName string `json:"claimName"`
+
+	// Path is an optional subdirectory on the claim. It must be relative and must not
+	// contain ".." segments. It is created if missing.
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	// +kubebuilder:validation:XValidation:rule="!self.startsWith('/')",message="path must be relative"
+	// +kubebuilder:validation:XValidation:rule="!self.split('/').exists(s, s == '..')",message="path must not contain '..' segments"
+	Path string `json:"path,omitempty"`
+}
+
+// SaveGameDestinationStatus is the outcome of the latest backup run for one destination.
+type SaveGameDestinationStatus struct {
+	// Name is the destination name from spec.destinations.
+	Name string `json:"name"`
+
+	// LastSuccessTime is the time of the latest run that wrote to this destination.
+	// +optional
+	LastSuccessTime *metav1.Time `json:"lastSuccessTime,omitempty"`
+
+	// LastSize is the size in bytes of the save written by the latest successful run.
+	// +optional
+	LastSize *int64 `json:"lastSize,omitempty"`
+
+	// RetainedCount is the number of saves this destination holds for the session.
+	// +optional
+	RetainedCount int32 `json:"retainedCount,omitempty"`
+
+	// LastError is the error of the latest run, empty if it succeeded.
+	// +optional
+	LastError string `json:"lastError,omitempty"`
 }
 
 // SaveGameStatus defines the observed state of SaveGame.
@@ -103,6 +178,12 @@ type SaveGameStatus struct {
 	// RetainedSaveCount is the number of save files on the server belonging to this SaveGame.
 	// +optional
 	RetainedSaveCount int32 `json:"retainedSaveCount,omitempty"`
+
+	// Destinations holds the per-destination results of the latest backup run.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	Destinations []SaveGameDestinationStatus `json:"destinations,omitempty"`
 }
 
 // +kubebuilder:object:root=true

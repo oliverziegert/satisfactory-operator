@@ -137,7 +137,7 @@ setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
 
 .PHONY: test-e2e
 test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -timeout 30m
 	$(MAKE) cleanup-test-e2e
 
 .PHONY: cleanup-test-e2e
@@ -164,7 +164,7 @@ build: manifests generate fmt vet ## Build manager binary.
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd/main.go
+	RELATED_IMAGE_BACKUP=$(IMG) go run ./cmd/main.go
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
@@ -405,6 +405,10 @@ helm: kubebuilder ## Regenerate the Helm chart in dist/chart from the kustomize 
 	@# Namespace mode binds manager-role per namespace instead (templates/extra/watch-namespaces-rbac.yaml).
 	f=$(HELM_CHART_DIR)/templates/rbac/manager-rolebinding.yaml; \
 		{ echo '{{- if not .Values.watchNamespaces }}'; cat $$f; echo '{{- end }}'; } > $$f.tmp && mv $$f.tmp $$f
+	@# The plugin turns config/manager env into values; backup Jobs need RELATED_IMAGE_BACKUP to be the manager image.
+	perl -0pi -e 'my ($$img) = /^        image: (".*")$$/m or die "manager image not found\n";' \
+		-e 's{^        env:\n(.*?)          \{\{- else \}\}\n          \[\]\n}{        env:\n          - name: RELATED_IMAGE_BACKUP\n            value: $$img\n$$1}ms or die "manager env block not found\n"' \
+		$(HELM_CHART_DIR)/templates/manager/manager.yaml
 
 .PHONY: helm-deploy
 helm-deploy: install-helm ## Deploy manager to the K8s cluster via Helm. Specify an image with IMG.
