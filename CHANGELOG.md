@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.3.1](https://github.com/oliverziegert/satisfactory-operator/compare/v0.3.0...v0.3.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* **deps:** update gcr.io/distroless/static:nonroot docker digest to aafe993 ([#78](https://github.com/oliverziegert/satisfactory-operator/issues/78)) ([e733c9a](https://github.com/oliverziegert/satisfactory-operator/commit/e733c9a23390900dfe8f77c588c5d708ea483093))
+* **deps:** update golang:1.27 docker digest to 01aa404 ([#76](https://github.com/oliverziegert/satisfactory-operator/issues/76)) ([f8da2d8](https://github.com/oliverziegert/satisfactory-operator/commit/f8da2d868982f54de88462c3e52f87c78ec43106))
+* **deps:** update golang:1.27 docker digest to a386c44 ([#73](https://github.com/oliverziegert/satisfactory-operator/issues/73)) ([d20907f](https://github.com/oliverziegert/satisfactory-operator/commit/d20907f1b185492df035e65f04560fceb7d5f45b))
+* **deps:** update golang:1.27 docker digest to c292963 ([#70](https://github.com/oliverziegert/satisfactory-operator/issues/70)) ([f1fb091](https://github.com/oliverziegert/satisfactory-operator/commit/f1fb091ab08f4a67d932b547dc12c761cf63ecfb))
+* **deps:** update golang:1.27 docker digest to e519d3b ([#75](https://github.com/oliverziegert/satisfactory-operator/issues/75)) ([3a33d2d](https://github.com/oliverziegert/satisfactory-operator/commit/3a33d2d52184e9301cbabe5aae9172e1aeb56a89))
+* **deps:** update golang:1.27 docker digest to ec47ea3 ([#77](https://github.com/oliverziegert/satisfactory-operator/issues/77)) ([a250a86](https://github.com/oliverziegert/satisfactory-operator/commit/a250a86cb01e158792b249edf0e81c325011ca45))
+
+
+### Miscellaneous Chores
+
+* **deps:** update amannn/action-semantic-pull-request digest to 2252a14 ([#72](https://github.com/oliverziegert/satisfactory-operator/issues/72)) ([04c2fcc](https://github.com/oliverziegert/satisfactory-operator/commit/04c2fccda22b1b0857316304b99a9c16d0dcbc37))
+* **deps:** update docker/login-action digest to 8aa5831 ([#74](https://github.com/oliverziegert/satisfactory-operator/issues/74)) ([03aa349](https://github.com/oliverziegert/satisfactory-operator/commit/03aa3495af69e14fd11576e9f26d7d78650d1c13))
+* **deps:** update module github.com/onsi/ginkgo/v2 to v2.34.0 ([#67](https://github.com/oliverziegert/satisfactory-operator/issues/67)) ([4ef3610](https://github.com/oliverziegert/satisfactory-operator/commit/4ef361038ccb178b29b7e24876e0940089c1b761))
+
 ## [0.3.0](https://github.com/oliverziegert/satisfactory-operator/compare/v0.2.1...v0.3.0) (2026-11-01)
 
 
