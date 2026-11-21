@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.3.1](https://github.com/oliverziegert/satisfactory-operator/compare/v0.3.0...v0.3.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* **deps:** update gcr.io/distroless/static:nonroot docker digest to aafe993 ([#78](https://github.com/oliverziegert/satisfactory-operator/issues/78)) ([e733c9a](https://github.com/oliverziegert/satisfactory-operator/commit/e733c9a23390900dfe8f77c588c5d708ea483093))
+* **deps:** update golang:1.27 docker digest to 01aa404 ([#76](https://github.com/oliverziegert/satisfactory-operator/issues/76)) ([f8da2d8](https://github.com/oliverziegert/satisfactory-operator/commit/f8da2d868982f54de88462c3e52f87c78ec43106))
+* **deps:** update golang:1.27 docker digest to 205c763 ([#84](https://github.com/oliverziegert/satisfactory-operator/issues/84)) ([fab7ea0](https://github.com/oliverziegert/satisfactory-operator/commit/fab7ea014592cafcffd2c0d52409beb461abf84c))
+* **deps:** update golang:1.27 docker digest to a386c44 ([#73](https://github.com/oliverziegert/satisfactory-operator/issues/73)) ([d20907f](https://github.com/oliverziegert/satisfactory-operator/commit/d20907f1b185492df035e65f04560fceb7d5f45b))
+* **deps:** update golang:1.27 docker digest to c292963 ([#70](https://github.com/oliverziegert/satisfactory-operator/issues/70)) ([f1fb091](https://github.com/oliverziegert/satisfactory-operator/commit/f1fb091ab08f4a67d932b547dc12c761cf63ecfb))
+* **deps:** update golang:1.27 docker digest to e519d3b ([#75](https://github.com/oliverziegert/satisfactory-operator/issues/75)) ([3a33d2d](https://github.com/oliverziegert/satisfactory-operator/commit/3a33d2d52184e9301cbabe5aae9172e1aeb56a89))
+* **deps:** update golang:1.27 docker digest to ec47ea3 ([#77](https://github.com/oliverziegert/satisfactory-operator/issues/77)) ([a250a86](https://github.com/oliverziegert/satisfactory-operator/commit/a250a86cb01e158792b249edf0e81c325011ca45))
+* **deps:** update golang:1.27 docker digest to fe517ac ([#81](https://github.com/oliverziegert/satisfactory-operator/issues/81)) ([37f2727](https://github.com/oliverziegert/satisfactory-operator/commit/37f2727c529436510a6c8f724da60094d636e807))
+* **deps:** update module sigs.k8s.io/controller-runtime to v0.25.3 ([#82](https://github.com/oliverziegert/satisfactory-operator/issues/82)) ([44c09e0](https://github.com/oliverziegert/satisfactory-operator/commit/44c09e0647c6cccf5219c2875aa5da181008dde8))
+
+
+### Miscellaneous Chores
+
+* **deps:** update actions/create-github-app-token digest to f418cff ([#85](https://github.com/oliverziegert/satisfactory-operator/issues/85)) ([6d6bd51](https://github.com/oliverziegert/satisfactory-operator/commit/6d6bd51dea1e0e981fef3c6a36d47f21d53e2bc9))
+* **deps:** update actions/setup-go digest to d8cbb80 ([#83](https://github.com/oliverziegert/satisfactory-operator/issues/83)) ([648a5a0](https://github.com/oliverziegert/satisfactory-operator/commit/648a5a01f03a73d73cae6d0a91c30150b70bd07a))
+* **deps:** update amannn/action-semantic-pull-request digest to 2252a14 ([#72](https://github.com/oliverziegert/satisfactory-operator/issues/72)) ([04c2fcc](https://github.com/oliverziegert/satisfactory-operator/commit/04c2fccda22b1b0857316304b99a9c16d0dcbc37))
+* **deps:** update amannn/action-semantic-pull-request digest to c5e23b7 ([#86](https://github.com/oliverziegert/satisfactory-operator/issues/86)) ([b675955](https://github.com/oliverziegert/satisfactory-operator/commit/b675955184c0c4939f0587179267ee2a6ec5a445))
+* **deps:** update docker/login-action digest to 8aa5831 ([#74](https://github.com/oliverziegert/satisfactory-operator/issues/74)) ([03aa349](https://github.com/oliverziegert/satisfactory-operator/commit/03aa3495af69e14fd11576e9f26d7d78650d1c13))
+* **deps:** update module github.com/onsi/ginkgo/v2 to v2.34.0 ([#67](https://github.com/oliverziegert/satisfactory-operator/issues/67)) ([4ef3610](https://github.com/oliverziegert/satisfactory-operator/commit/4ef361038ccb178b29b7e24876e0940089c1b761))
+
 ## [0.3.0](https://github.com/oliverziegert/satisfactory-operator/compare/v0.2.1...v0.3.0) (2026-11-01)
 
 
